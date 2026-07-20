@@ -194,4 +194,36 @@ impl SavingsContract {
 
         Ok(())
     }
+
+    pub fn accrue_yield(
+        env: Env,
+        admin: Address,
+        user: Address,
+        yield_amount: i128,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+
+        let stored_admin = storage::get_admin(&env);
+
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        if !storage::has_user_savings(&env, &user) {
+            return Err(ContractError::UserNotFound);
+        }
+
+        let mut savings = storage::get_user_savings(&env, &user);
+
+        savings.yield_shares = savings
+            .yield_shares
+            .checked_add(yield_amount)
+            .ok_or(ContractError::Overflow)?;
+
+        storage::set_user_savings(&env, &user, &savings);
+
+        events::emit_yield_accrued(&env, &user, yield_amount);
+
+        Ok(())
+    }
 }
