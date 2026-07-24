@@ -49,6 +49,7 @@ import { POST as giftRedeemPost } from "./api/gifts/redeem/route";
 import { POST as giftAppreciatePost } from "./api/gifts/appreciate/route";
 // Users
 import { GET as resolveRecipientGet } from "./api/users/resolve/route";
+import { DELETE as deleteAccountDelete } from "./api/users/security/route";
 import { POST as forgotPasswordPost } from "./api/auth/forgot-password/route";
 import { POST as loginPost } from "./api/auth/login/route";
 import { POST as logoutPost } from "./api/auth/logout/route";
@@ -101,3 +102,4 @@ apiRouter.post("/api/upload/image", limitUploadSize, makeExpressHandler(uploadIm
 
 // 5. Users routes
 apiRouter.get("/api/users/resolve", makeExpressHandler(resolveRecipientGet));
+apiRouter.delete("/api/users/account", makeExpressHandler(deleteAccountDelete));
