@@ -263,6 +263,20 @@ export const transactions = pgTable(
   ],
 );
 
+export const giftsMetadata = pgTable("gifts_metadata", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  contractGiftId: text("contract_gift_id").notNull(),
+  userId: uuid("user_id").notNull().references(() => users.id),
+  message: text("message"),
+  hideAmount: boolean("hide_amount").default(false).notNull(),
+  stayAnonymous: boolean("stay_anonymous").default(false).notNull(),
+  imageUrl: text("image_url"),
+  processingFee: doublePrecision("processing_fee").default(0).notNull(),
+  status: text("status").default("pending").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const webhookRetryQueue = pgTable("WebhookRetryQueue", {
   id: uuid("id").defaultRandom().primaryKey(),
   eventType: text("event_type").notNull(),
@@ -285,6 +299,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   receivedGifts: many(gifts, { relationName: "receivedGifts" }),
   bankAccounts: many(bankAccounts),
   transactions: many(transactions),
+  giftsMetadata: many(giftsMetadata),
 }));
 
 export const emailVerificationsRelations = relations(
@@ -340,4 +355,8 @@ export const bankAccountsRelations = relations(bankAccounts, ({ one }) => ({
 export const transactionsRelations = relations(transactions, ({ one }) => ({
   user: one(users, { fields: [transactions.userId], references: [users.id] }),
   wallet: one(wallets, { fields: [transactions.walletId], references: [wallets.id] }),
+}));
+
+export const giftsMetadataRelations = relations(giftsMetadata, ({ one }) => ({
+  user: one(users, { fields: [giftsMetadata.userId], references: [users.id] }),
 }));
