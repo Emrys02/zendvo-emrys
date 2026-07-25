@@ -8,7 +8,7 @@ import {
   storeOTP,
   checkOTPRequestRateLimitByUserId,
 } from "@/server/services/otpService";
-import { sendVerificationEmail } from "@/server/services/emailService";
+import { sendActionOtpEmail } from "@/server/services/emailService";
 import { createProblemDetails } from "@/lib/api-utils";
 import {
   checkActionOtpCooldown,
@@ -25,6 +25,11 @@ const ALLOWED_ACTIONS = new Set([
   "email_verification",
   "profile_update",
   "login_2fa",
+  "delete_account",
+  "disable_2fa",
+  "change_email",
+  "change_password",
+  "withdraw_funds",
 ]);
 
 export async function POST(request: NextRequest) {
@@ -118,11 +123,12 @@ export async function POST(request: NextRequest) {
     }
 
     const otp = generateOTP();
-    await storeOTP(user.id, otp);
+    await storeOTP(user.id, otp, action);
 
-    const emailResult = await sendVerificationEmail(
+    const emailResult = await sendActionOtpEmail(
       user.email,
       otp,
+      action,
       user.name || undefined,
     );
 
