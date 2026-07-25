@@ -2,6 +2,7 @@ import { Router } from "express";
 import { makeExpressHandler } from "./adapter";
 
 // Auth
+import { POST as actionOtpPost } from "./api/auth/action-otp/route";
 import { POST as authPost } from "./api/auth/route";
 import { POST as forgotPasswordPost } from "./api/auth/forgot-password/route";
 import { POST as loginPost } from "./api/auth/login/route";
@@ -23,6 +24,8 @@ export const apiRouter = Router();
 
 // 1. Authentication routes
 apiRouter.post("/api/auth", makeExpressHandler(authPost));
+apiRouter.post("/api/auth/action-otp/send", makeExpressHandler(actionOtpPost));
+apiRouter.post("/api/auth/action-otp", makeExpressHandler(actionOtpPost));
 apiRouter.post("/api/auth/forgot-password", makeExpressHandler(forgotPasswordPost));
 apiRouter.post("/api/auth/login", makeExpressHandler(loginPost));
 apiRouter.post("/api/auth/logout", makeExpressHandler(logoutPost));
