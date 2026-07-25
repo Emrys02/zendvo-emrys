@@ -31,7 +31,7 @@ jest.mock("@/server/services/otpService", () => ({
 }));
 
 jest.mock("@/server/services/emailService", () => ({
-  sendVerificationEmail: jest.fn().mockResolvedValue({ success: true }),
+  sendActionOtpEmail: jest.fn().mockResolvedValue({ success: true }),
 }));
 
 describe("POST /api/auth/action-otp/send Endpoint", () => {
@@ -77,10 +77,15 @@ describe("POST /api/auth/action-otp/send Endpoint", () => {
     expect(response.status).toBe(200);
     expect(data.success).toBe(true);
     expect(data.action).toBe("transfer_confirm");
-    expect(otpService.storeOTP).toHaveBeenCalledWith(mockUser.id, "654321");
-    expect(emailService.sendVerificationEmail).toHaveBeenCalledWith(
+    expect(otpService.storeOTP).toHaveBeenCalledWith(
+      mockUser.id,
+      "654321",
+      "transfer_confirm",
+    );
+    expect(emailService.sendActionOtpEmail).toHaveBeenCalledWith(
       mockUser.email,
       "654321",
+      "transfer_confirm",
       mockUser.name,
     );
   });
@@ -136,7 +141,7 @@ describe("POST /api/auth/action-otp/send Endpoint", () => {
       email: mockUser.email,
     });
     (db.query.users.findFirst as jest.Mock).mockResolvedValue(mockUser);
-    (emailService.sendVerificationEmail as jest.Mock).mockResolvedValueOnce({
+    (emailService.sendActionOtpEmail as jest.Mock).mockResolvedValueOnce({
       success: false,
       error: "SMTP Error",
     });
