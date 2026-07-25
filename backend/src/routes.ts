@@ -41,6 +41,7 @@ const limitUploadSize = (req: Request, res: Response, next: NextFunction) => {
 };
 
 // Auth
+import { POST as actionOtpPost } from "./api/auth/action-otp/route";
 import { POST as authPost } from "./api/auth/route";
 // Dashboard
 import { GET as dashboardStatsGet } from "./api/dashboard/stats/route";
@@ -51,6 +52,7 @@ import { POST as giftAppreciatePost } from "./api/gifts/appreciate/route";
 // Users
 import { GET as resolveRecipientGet } from "./api/users/resolve/route";
 import { DELETE as deleteAccountDelete } from "./api/users/account/route";
+import { PUT as updateProfilePut } from "./api/users/profile/route";
 import { POST as forgotPasswordPost } from "./api/auth/forgot-password/route";
 import { POST as loginPost } from "./api/auth/login/route";
 import { POST as logoutPost } from "./api/auth/logout/route";
@@ -66,6 +68,7 @@ import { POST as sendPhoneOtpPost } from "./api/auth/send-phone-otp/route";
 import { POST as sendVerificationPost } from "./api/auth/send-verification/route";
 import { POST as verifyEmailPost } from "./api/auth/verify-email/route";
 import { POST as verifyOtpPost } from "./api/auth/verify-otp/route";
+import { POST as verifyActionOtpPost } from "./api/auth/action-otp/verify/route";
 import { POST as verifyDeletionOtpPost } from "./api/auth/verify-deletion-otp/route";
 
 // Upload
@@ -75,6 +78,8 @@ export const apiRouter = Router();
 
 // 1. Authentication routes
 apiRouter.post("/api/auth", makeExpressHandler(authPost));
+apiRouter.post("/api/auth/action-otp/send", makeExpressHandler(actionOtpPost));
+apiRouter.post("/api/auth/action-otp", makeExpressHandler(actionOtpPost));
 apiRouter.post("/api/auth/forgot-password", makeExpressHandler(forgotPasswordPost));
 apiRouter.post("/api/auth/login", makeExpressHandler(loginPost));
 apiRouter.post("/api/auth/logout", makeExpressHandler(logoutPost));
@@ -90,6 +95,7 @@ apiRouter.post("/api/auth/send-phone-otp", makeExpressHandler(sendPhoneOtpPost))
 apiRouter.post("/api/auth/send-verification", makeExpressHandler(sendVerificationPost));
 apiRouter.post("/api/auth/verify-email", makeExpressHandler(verifyEmailPost));
 apiRouter.post("/api/auth/verify-otp", makeExpressHandler(verifyOtpPost));
+apiRouter.post("/api/auth/action-otp/verify", makeExpressHandler(verifyActionOtpPost));
 apiRouter.post("/api/auth/verify-deletion-otp", makeExpressHandler(verifyDeletionOtpPost));
 
 // 2. Dashboard routes
@@ -97,7 +103,9 @@ apiRouter.get("/api/dashboard/stats", makeExpressHandler(dashboardStatsGet));
 apiRouter.get("/api/dashboard/gifts", makeExpressHandler(dashboardGiftsGet));
 
 // 3. Gifts routes
+apiRouter.post("/api/gifts/:id/redeem", makeExpressHandler(giftRedeemPost));
 apiRouter.post("/api/gifts/redeem", makeExpressHandler(giftRedeemPost));
+apiRouter.post("/api/gifts/:id/appreciate", makeExpressHandler(giftAppreciatePost));
 apiRouter.post("/api/gifts/appreciate", makeExpressHandler(giftAppreciatePost));
 
 // 4. Upload routes

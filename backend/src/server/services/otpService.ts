@@ -251,47 +251,92 @@ async function sendSMSViaProvider(phoneNumber: string, message: string): Promise
   }
 }
 
-export async function storeOTP(userId: string, otp: string) {
+export async function storeOTP(userId: string, otp: string, action?: string) {
   const { salt, hash } = hashOTP(otp);
   const storedValue = `${salt}:${hash}`;
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-  await db
-    .update(emailVerifications)
-    .set({ isUsed: true })
-    .where(
-      and(
-        eq(emailVerifications.userId, userId),
-        eq(emailVerifications.isUsed, false),
-      ),
-    );
+  // PostgreSQL error code for serialization failure (40001) and deadlock (40P01).
+  // Either can be raised when two SERIALIZABLE transactions conflict on the same
+  // rows.  Both are safe to retry immediately from the application layer.
+  const SERIALIZATION_FAILURE = "40001";
+  const DEADLOCK_DETECTED = "40P01";
+  const MAX_RETRIES = 3;
+
+  let attempt = 0;
+  let newVerification: typeof import("@/lib/db/schema").emailVerifications.$inferSelect | undefined;
+
+  while (attempt < MAX_RETRIES) {
+    try {
+      newVerification = await db.transaction(
+        async (tx) => {
+          // Invalidate existing unused OTPs scoped to the same action.
+          await tx
+            .update(emailVerifications)
+            .set({ isUsed: true })
+            .where(
+              and(
+                eq(emailVerifications.userId, userId),
+                eq(emailVerifications.isUsed, false),
+                action
+                  ? eq(emailVerifications.action, action)
+                  : sql`${emailVerifications.action} IS NULL`,
+              ),
+            );
+
+          const [inserted] = await tx
+            .insert(emailVerifications)
+            .values({
+              userId,
+              otpHash: storedValue,
+              expiresAt,
+              attempts: 0,
+              isUsed: false,
+              action: action ?? null,
+            })
+            .returning();
+
+          return inserted;
+        },
+        { isolationLevel: "serializable" },
+      );
+
+      // Transaction committed — exit the retry loop.
+      break;
+    } catch (err) {
+      const pgCode = (err as { code?: string }).code;
+      if (
+        (pgCode === SERIALIZATION_FAILURE || pgCode === DEADLOCK_DETECTED) &&
+        attempt < MAX_RETRIES - 1
+      ) {
+        attempt++;
+        continue;
+      }
+      // Propagate non-retryable errors or exhausted retries.
+      throw err;
+    }
+  }
 
   logOTPEvent(AuditEventType.OTP_GENERATED, userId);
-
-  const [newVerification] = await db
-    .insert(emailVerifications)
-    .values({
-      userId,
-      otpHash: storedValue,
-      expiresAt,
-      attempts: 0,
-      isUsed: false,
-    })
-    .returning();
 
   await db
     .update(users)
     .set({ lastOtpSentAt: new Date() })
     .where(eq(users.id, userId));
 
-  return newVerification;
+  return newVerification!;
 }
 
 export async function verifyOTP(userId: string, otp: string, ipAddress?: string) {
+  // Explicitly exclude action-scoped OTPs — those must only be consumed by the
+  // action-otp/verify endpoint.  Without this guard a privileged OTP (e.g.
+  // issued for delete_account) could be consumed by the general email/phone
+  // verification flow and its action token would never be issued.
   const verification = await db.query.emailVerifications.findFirst({
     where: and(
       eq(emailVerifications.userId, userId),
       eq(emailVerifications.isUsed, false),
+      sql`${emailVerifications.action} IS NULL`,
     ),
     orderBy: [desc(emailVerifications.createdAt)],
   });
