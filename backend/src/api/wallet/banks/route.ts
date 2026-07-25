@@ -34,6 +34,17 @@ export async function DELETE(
     const { userId } = authPayload;
     const { id } = await context.params;
 
+    const UUID_REGEX =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_REGEX.test(id)) {
+      return createProblemDetails(
+        "about:blank",
+        "Bad Request",
+        400,
+        "Invalid bank account id"
+      );
+    }
+
     const account = await db.query.bankAccounts.findFirst({
       where: eq(bankAccounts.id, id),
     });
