@@ -3,6 +3,8 @@ import { makeExpressHandler } from "./adapter";
 
 // Auth
 import { POST as authPost } from "./api/auth/route";
+// Wallet
+import { GET as walletTransactionsGet } from "./api/wallet/transactions/route";
 // Dashboard
 import { GET as dashboardStatsGet } from "./api/dashboard/stats/route";
 import { POST as forgotPasswordPost } from "./api/auth/forgot-password/route";
@@ -43,4 +45,7 @@ apiRouter.post("/api/auth/verify-otp", makeExpressHandler(verifyOtpPost));
 
 // 2. Dashboard routes
 apiRouter.get("/api/dashboard/stats", makeExpressHandler(dashboardStatsGet));
+
+// 3. Wallet routes
+apiRouter.get("/api/wallet/transactions", makeExpressHandler(walletTransactionsGet));
 
