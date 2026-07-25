@@ -170,6 +170,9 @@ describe("POST /api/gifts/:id/redeem", () => {
     expect(body.success).toBe(true);
     expect(body.message).toContain("redeemed successfully");
     expect(body.soroban).toBeDefined();
+    expect(body.soroban.unsignedXdr).toBeDefined();
+    expect(body.soroban.unsignedXdr).not.toBe("AAAA...");
+    expect(body.soroban.txHash).toHaveLength(64);
   });
 
   it("should extract giftId from request body if context params are missing", async () => {
