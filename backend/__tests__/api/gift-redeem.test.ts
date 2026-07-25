@@ -124,6 +124,29 @@ describe("POST /api/gifts/:id/redeem", () => {
     expect(body.title).toContain("Gift Locked");
   });
 
+  it("should return 400 Bad Request if gift has already been redeemed", async () => {
+    mockGetAuthPayload.mockResolvedValue({ userId: "user-recipient" });
+    const pastDate = new Date(Date.now() - 10000);
+    __mockGifts.push({
+      id: "gift-1",
+      recipientId: "user-recipient",
+      senderId: "user-sender",
+      amount: 50,
+      currency: "USDC",
+      status: "completed",
+      unlockDatetime: pastDate,
+    });
+
+    const req = new NextRequest("http://localhost:3000/api/gifts/gift-1/redeem", {
+      method: "POST",
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: "gift-1" }) });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.title).toBe("Already Claimed");
+  });
+
   it("should successfully redeem gift when unlocked and recipient matches", async () => {
     mockGetAuthPayload.mockResolvedValue({ userId: "user-recipient" });
     const pastDate = new Date(Date.now() - 10000);
@@ -147,5 +170,29 @@ describe("POST /api/gifts/:id/redeem", () => {
     expect(body.success).toBe(true);
     expect(body.message).toContain("redeemed successfully");
     expect(body.soroban).toBeDefined();
+  });
+
+  it("should extract giftId from request body if context params are missing", async () => {
+    mockGetAuthPayload.mockResolvedValue({ userId: "user-recipient" });
+    const pastDate = new Date(Date.now() - 10000);
+    __mockGifts.push({
+      id: "gift-2",
+      recipientId: "user-recipient",
+      senderId: "user-sender",
+      amount: 100,
+      currency: "USDC",
+      status: "confirmed",
+      unlockDatetime: pastDate,
+    });
+
+    const req = new NextRequest("http://localhost:3000/api/gifts/redeem", {
+      method: "POST",
+      body: JSON.stringify({ id: "gift-2" }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
   });
 });

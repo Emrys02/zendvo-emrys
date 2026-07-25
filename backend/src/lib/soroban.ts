@@ -31,12 +31,12 @@ export function buildSorobanRedeemTx(options: {
     if (contractId && recipientAddress) {
       const contract = new Contract(contractId);
       const operation = contract.call(
-        "cancel_gift",
+        "redeem_gift",
         Address.fromString(recipientAddress).toScVal()
       );
       return {
         contractId,
-        txHash: `tx_soroban_${numericId}_${Date.now()}`,
+        txHash: `tx_soroban_${numericId || giftId}_${Date.now()}`,
         unsignedXdr: "AAAA...",
       };
     }

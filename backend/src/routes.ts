@@ -96,7 +96,9 @@ apiRouter.get("/api/dashboard/stats", makeExpressHandler(dashboardStatsGet));
 apiRouter.get("/api/dashboard/gifts", makeExpressHandler(dashboardGiftsGet));
 
 // 3. Gifts routes
+apiRouter.post("/api/gifts/:id/redeem", makeExpressHandler(giftRedeemPost));
 apiRouter.post("/api/gifts/redeem", makeExpressHandler(giftRedeemPost));
+apiRouter.post("/api/gifts/:id/appreciate", makeExpressHandler(giftAppreciatePost));
 apiRouter.post("/api/gifts/appreciate", makeExpressHandler(giftAppreciatePost));
 
 // 4. Upload routes
