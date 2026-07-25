@@ -34,7 +34,11 @@ export function makeExpressHandler(nextHandler: Function) {
       });
 
       // Inject nextUrl helper for searchParams
-      (webReq as any).nextUrl = new URL(url);
+      Object.defineProperty(webReq, "nextUrl", {
+  value: new URL(url),
+  writable: true,
+  configurable: true,
+});
 
       // Pass Express route params to Next context as Promise (matching Next.js 15/16)
       const context = {
