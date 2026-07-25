@@ -22,6 +22,20 @@
       "when": 1780557193754,
       "tag": "0002_peaceful_tag",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784989715407,
+      "tag": "0003_schema_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784989863483,
+      "tag": "0004_secure_bank_accounts",
+      "breakpoints": true
     }
   ]
 }
