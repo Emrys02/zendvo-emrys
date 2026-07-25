@@ -1,5 +1,22 @@
 use soroban_sdk::{symbol_short, Address, Env};
 
+/// Emitted when a sender redirects a pending gift to a new recipient.
+///
+/// Topics : ["RecipientUpdated", sender]
+/// Data   : (gift_id, old_recipient, new_recipient)
+pub fn emit_recipient_updated(
+    env: &Env,
+    gift_id: u64,
+    sender: &Address,
+    old_recipient: &Address,
+    new_recipient: &Address,
+) {
+    env.events().publish(
+        (symbol_short!("RecipUpd"), sender.clone()),
+        (gift_id, old_recipient.clone(), new_recipient.clone()),
+    );
+}
+
 /// Emitted when a new time-locked gift is created.
 ///
 /// Topics : ["GiftCrtd", sender]
@@ -17,6 +34,18 @@ pub fn emit_gift_created(
     env.events().publish(
         (symbol_short!("GiftCrtd"), sender.clone()),
         (gift_id, recipient.clone(), amount, unlock_time, timestamp),
+    );
+}
+
+/// Emitted when a sender cancels an unclaimed gift.
+///
+/// Topics : ["GiftCncld", sender]
+/// Data   : (gift_id, amount, timestamp)
+pub fn emit_gift_cancelled(env: &Env, gift_id: u64, sender: &Address, amount: i128) {
+    let timestamp = env.ledger().timestamp();
+    env.events().publish(
+        (symbol_short!("GiftCncld"), sender.clone()),
+        (gift_id, amount, timestamp),
     );
 }
 

@@ -36,6 +36,13 @@ pub fn get_gift(env: &Env, gift_id: u64) -> Gift {
         .expect("gift not found")
 }
 
+/// Removes a gift record from persistent storage.
+pub fn remove_gift(env: &Env, gift_id: u64) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::GiftRecord(gift_id));
+}
+
 // ── Token address ─────────────────────────────────────────────────────────────
 
 /// Reads the stored USDC token contract address. Panics if uninitialized.

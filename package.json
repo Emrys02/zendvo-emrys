@@ -2,6 +2,7 @@
   "name": "zendvo-monorepo",
   "private": true,
   "scripts": {
+    "postinstall": "node scripts/patch-jest-mock.js",
     "dev:web": "pnpm --filter web run dev",
     "dev:backend": "pnpm --filter backend run dev",
     "dev": "concurrently \"pnpm run dev:web\" \"pnpm run dev:backend\"",

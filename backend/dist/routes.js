@@ -3,6 +3,20 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.apiRouter = void 0;
 const express_1 = require("express");
 const adapter_1 = require("./adapter");
+// Middleware to limit request size for uploads
+const limitUploadSize = (req, res, next) => {
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+    if (contentLength > MAX_FILE_SIZE) {
+        return res.status(413).json({
+            type: "about:blank",
+            title: "Payload Too Large",
+            status: 413,
+            detail: "Request body exceeds the 10MB limit."
+        });
+    }
+    next();
+};
 // Auth
 const route_1 = require("./api/auth/route");
 const route_2 = require("./api/auth/forgot-password/route");
@@ -20,8 +34,8 @@ const route_13 = require("./api/auth/send-phone-otp/route");
 const route_14 = require("./api/auth/send-verification/route");
 const route_15 = require("./api/auth/verify-email/route");
 const route_16 = require("./api/auth/verify-otp/route");
-// Gifts
-const route_17 = require("./api/gifts/public/upload-avatar/route");
+// Upload
+const route_17 = require("./api/upload/image/route");
 exports.apiRouter = (0, express_1.Router)();
 // 1. Authentication routes
 exports.apiRouter.post("/api/auth", (0, adapter_1.makeExpressHandler)(route_1.POST));
@@ -40,5 +54,5 @@ exports.apiRouter.post("/api/auth/send-phone-otp", (0, adapter_1.makeExpressHand
 exports.apiRouter.post("/api/auth/send-verification", (0, adapter_1.makeExpressHandler)(route_14.POST));
 exports.apiRouter.post("/api/auth/verify-email", (0, adapter_1.makeExpressHandler)(route_15.POST));
 exports.apiRouter.post("/api/auth/verify-otp", (0, adapter_1.makeExpressHandler)(route_16.POST));
-// 2. Gifts routes
-exports.apiRouter.post("/api/gifts/public/upload-avatar", route_17.upload.single("avatar"), route_17.uploadAvatarHandler);
+// 2. Upload routes
+exports.apiRouter.post("/api/upload/image", limitUploadSize, (0, adapter_1.makeExpressHandler)(route_17.POST));

@@ -13,6 +13,7 @@
     "db:check": "ts-node -e \"require('./src/lib/db/migration-checker').checkMigrationStatus().then(s => console.log(s.message))\""
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1094.0",
     "@libsql/client": "^0.17.0",
     "@prisma/client": "^7.5.0",
     "@stellar/stellar-sdk": "^14.4.3",
@@ -24,7 +25,7 @@
     "jose": "^6.2.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.2.0",
-    "nanoid": "^5.1.14",
+    "nanoid": "^5.1.7",
     "next": "16.1.2",
     "nodemailer": "^7.0.12",
     "pg": "^8.20.0",
@@ -39,7 +40,7 @@
     "@types/express": "^4.17.21",
     "@types/jest": "^30.0.0",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/multer": "^2.1.0",
+    "@types/multer": "^2.2.0",
     "@types/node": "^20",
     "@types/nodemailer": "^7.0.9",
     "@types/pg": "^8.18.0",

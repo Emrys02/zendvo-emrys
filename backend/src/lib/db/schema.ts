@@ -17,8 +17,8 @@ export const userStatusEnum = pgEnum("user_status", [
   "unverified",
   "active",
   "suspended",
+  "deleted",
 ]);
-
 
 export const users = pgTable(
   "users",
@@ -67,12 +67,38 @@ export const emailVerifications = pgTable(
     attempts: integer("attempts").default(0).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     isUsed: boolean("is_used").default(false).notNull(),
+    /**
+     * Scopes this OTP record to a specific sensitive action.
+     * NULL for general-purpose OTPs (e.g. email verification at signup).
+     * Must be set when issuing OTPs for privileged actions so that a code
+     * generated for one action cannot be redeemed for a different one.
+     */
+    action: text("action"),
   },
   (table) => {
     return [
       index("ev_user_id_idx").on(table.userId),
       index("ev_expires_at_idx").on(table.expiresAt),
+      index("ev_user_action_idx").on(table.userId, table.action),
     ];
+  },
+);
+
+/**
+ * Tracks consumed action-token JTIs to enforce single-use semantics.
+ * A cron job should periodically purge rows where expiresAt < now().
+ */
+export const usedActionTokens = pgTable(
+  "used_action_tokens",
+  {
+    /** The JWT ID claim from the action token. */
+    jti: text("jti").primaryKey(),
+    /** Mirrors the token's exp claim — used by the cleanup cron. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => {
+    return [index("uat_expires_at_idx").on(table.expiresAt)];
   },
 );
 
@@ -277,6 +303,27 @@ export const giftsMetadata = pgTable("gifts_metadata", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const actionTokens = pgTable(
+  "action_tokens",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    token: text("token").notNull().unique(),
+    action: text("action").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    usedAt: timestamp("used_at"),
+    revokedAt: timestamp("revoked_at"),
+  },
+  (table) => [
+    index("at_user_id_idx").on(table.userId),
+    index("at_token_idx").on(table.token),
+    index("at_expires_at_idx").on(table.expiresAt),
+  ],
+);
+
 export const webhookRetryQueue = pgTable("WebhookRetryQueue", {
   id: uuid("id").defaultRandom().primaryKey(),
   eventType: text("event_type").notNull(),
@@ -293,6 +340,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   emailVerifications: many(emailVerifications),
   passwordResets: many(passwordResets),
   refreshTokens: many(refreshTokens),
+  actionTokens: many(actionTokens),
   wallets: many(wallets),
   notifications: many(notifications),
   sentGifts: many(gifts, { relationName: "sentGifts" }),
@@ -322,6 +370,13 @@ export const passwordResetsRelations = relations(passwordResets, ({ one }) => ({
 export const refreshTokensRelations = relations(refreshTokens, ({ one }) => ({
   user: one(users, {
     fields: [refreshTokens.userId],
+    references: [users.id],
+  }),
+}));
+
+export const actionTokensRelations = relations(actionTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [actionTokens.userId],
     references: [users.id],
   }),
 }));
@@ -360,3 +415,5 @@ export const transactionsRelations = relations(transactions, ({ one }) => ({
 export const giftsMetadataRelations = relations(giftsMetadata, ({ one }) => ({
   user: one(users, { fields: [giftsMetadata.userId], references: [users.id] }),
 }));
+
+export const webhookRetryQueueRelations = relations(webhookRetryQueue, () => ({}));

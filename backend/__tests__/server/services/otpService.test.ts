@@ -21,6 +21,22 @@ jest.mock("@/lib/db", () => ({
         returning: jest.fn(() => Promise.resolve([{}])),
       })),
     })),
+    transaction: jest.fn(async (fn: (tx: unknown) => unknown) => {
+      // Execute the callback with a minimal tx that mirrors the db mock shape
+      const tx = {
+        update: jest.fn(() => ({
+          set: jest.fn(() => ({
+            where: jest.fn(() => Promise.resolve()),
+          })),
+        })),
+        insert: jest.fn(() => ({
+          values: jest.fn(() => ({
+            returning: jest.fn(() => Promise.resolve([{ id: "ev-1" }])),
+          })),
+        })),
+      };
+      return fn(tx);
+    }),
   },
 }));
 

@@ -667,3 +667,79 @@ export async function sendGiftNotificationToRecipient(
     };
   }
 }
+
+export async function sendAppreciationEmailToSender(options: {
+  senderEmail: string;
+  senderName?: string | null;
+  recipientName?: string | null;
+  message?: string | null;
+  template?: string | null;
+  amount?: number;
+  currency?: string;
+}) {
+  const { senderEmail, senderName, recipientName, message, template, amount, currency } = options;
+  const thankYouText = message || template || "Thank you for the wonderful gift!";
+  const displaySender = senderName || "Friend";
+  const displayRecipient = recipientName || "The recipient";
+  const giftContext = amount && currency ? ` for the ${amount} ${currency} gift` : "";
+
+  const content = `
+    <p style="margin: 0 0 20px; color: #4a5568; font-size: 16px; line-height: 1.6;">
+      <strong>${displayRecipient}</strong> sent you an appreciation note${giftContext}!
+    </p>
+
+    <div style="background-color: #fffaf0; border-left: 4px solid #ed8936; padding: 20px; margin: 20px 0; border-radius: 4px;">
+      <p style="margin: 0; color: #7b341e; font-size: 16px; font-style: italic; line-height: 1.6;">
+        "${thankYouText}"
+      </p>
+    </div>
+
+    <p style="margin: 20px 0 0; color: #718096; font-size: 14px; line-height: 1.6;">
+      Thank you for making digital gifting magical with Zendvo!
+    </p>
+  `;
+
+  const mailOptions = {
+    from: `"Zendvo" <${EMAIL_CONFIG.auth.user}>`,
+    to: senderEmail,
+    subject: `💖 Thank You Note from ${displayRecipient}!`,
+    html: generateBaseTemplate({
+      title: "Appreciation Received",
+      userName: displaySender,
+      content,
+    }),
+    text: `${displayRecipient} sent you an appreciation note${giftContext}:\n\n"${thankYouText}"\n\nThank you for using Zendvo!`,
+  };
+
+  try {
+    if (process.env.NODE_ENV === "development") {
+      console.log("=".repeat(50));
+      console.log("📧 APPRECIATION EMAIL (Development Mode)");
+      console.log("=".repeat(50));
+      console.log(`To: ${senderEmail}`);
+      console.log(`From: ${displayRecipient}`);
+      console.log(`Note: ${thankYouText}`);
+      console.log("=".repeat(50));
+      return {
+        success: true,
+        messageId: "dev-mode",
+        message: "Appreciation email logged to console (development mode)",
+      };
+    }
+
+    const info = await transporter.sendMail(mailOptions);
+    return {
+      success: true,
+      messageId: info.messageId,
+      message: "Appreciation email sent successfully",
+    };
+  } catch (error) {
+    console.error("Error sending appreciation email:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+      message: "Failed to send appreciation email",
+    };
+  }
+}
+
