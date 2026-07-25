@@ -40,6 +40,7 @@ const limitUploadSize = (req: Request, res: Response, next: NextFunction) => {
 };
 
 // Auth
+import { POST as actionOtpPost } from "./api/auth/action-otp/route";
 import { POST as authPost } from "./api/auth/route";
 // Dashboard
 import { GET as dashboardStatsGet } from "./api/dashboard/stats/route";
@@ -76,6 +77,8 @@ export const apiRouter = Router();
 
 // 1. Authentication routes
 apiRouter.post("/api/auth", makeExpressHandler(authPost));
+apiRouter.post("/api/auth/action-otp/send", makeExpressHandler(actionOtpPost));
+apiRouter.post("/api/auth/action-otp", makeExpressHandler(actionOtpPost));
 apiRouter.post("/api/auth/forgot-password", makeExpressHandler(forgotPasswordPost));
 apiRouter.post("/api/auth/login", makeExpressHandler(loginPost));
 apiRouter.post("/api/auth/logout", makeExpressHandler(logoutPost));
