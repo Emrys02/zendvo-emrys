@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { makeExpressHandler } from "./adapter";
+import { DELETE as unlinkBankAccountDelete } from "./api/wallet/banks/route";
 
 // Streaming middleware to limit upload request size to 10MB without relying solely on Content-Length
 const limitUploadSize = (req: Request, res: Response, next: NextFunction) => {
@@ -116,4 +117,5 @@ apiRouter.post("/api/gifts/metadata", makeExpressHandler(giftsMetadataPost));
 // 5. Users routes
 apiRouter.get("/api/users/resolve", makeExpressHandler(resolveRecipientGet));
 apiRouter.delete("/api/users/account", makeExpressHandler(deleteAccountDelete));
-apiRouter.put("/api/users/profile", makeExpressHandler(updateProfilePut));
+// 6. Wallet routes
+apiRouter.delete("/api/wallet/banks/:id", makeExpressHandler(unlinkBankAccountDelete));
