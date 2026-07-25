@@ -67,12 +67,38 @@ export const emailVerifications = pgTable(
     attempts: integer("attempts").default(0).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     isUsed: boolean("is_used").default(false).notNull(),
+    /**
+     * Scopes this OTP record to a specific sensitive action.
+     * NULL for general-purpose OTPs (e.g. email verification at signup).
+     * Must be set when issuing OTPs for privileged actions so that a code
+     * generated for one action cannot be redeemed for a different one.
+     */
+    action: text("action"),
   },
   (table) => {
     return [
       index("ev_user_id_idx").on(table.userId),
       index("ev_expires_at_idx").on(table.expiresAt),
+      index("ev_user_action_idx").on(table.userId, table.action),
     ];
+  },
+);
+
+/**
+ * Tracks consumed action-token JTIs to enforce single-use semantics.
+ * A cron job should periodically purge rows where expiresAt < now().
+ */
+export const usedActionTokens = pgTable(
+  "used_action_tokens",
+  {
+    /** The JWT ID claim from the action token. */
+    jti: text("jti").primaryKey(),
+    /** Mirrors the token's exp claim — used by the cleanup cron. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => {
+    return [index("uat_expires_at_idx").on(table.expiresAt)];
   },
 );
 
