@@ -1,6 +1,7 @@
 import {
   checkActionOtpCooldown,
   recordActionOtpRequest,
+  clearActionOtpCooldown,
   resetCooldownStore,
 } from "../../src/lib/middleware/rateLimit";
 
@@ -44,7 +45,7 @@ describe("Action OTP Cooldown Rate Limiter", () => {
     expect(result.retryAfterSeconds).toBe(35);
   });
 
-  it("should allow request after 60 seconds cooldown expires", () => {
+  it("should allow request after 60 seconds cooldown expires and evict entry", () => {
     recordActionOtpRequest(mockUserId, mockAction);
 
     // Advance 61 seconds
@@ -53,6 +54,14 @@ describe("Action OTP Cooldown Rate Limiter", () => {
     const result = checkActionOtpCooldown(mockUserId, mockAction, 60000);
     expect(result.isRateLimited).toBe(false);
     expect(result.retryAfterSeconds).toBe(0);
+  });
+
+  it("should clear cooldown when clearActionOtpCooldown is called", () => {
+    recordActionOtpRequest(mockUserId, mockAction);
+    expect(checkActionOtpCooldown(mockUserId, mockAction).isRateLimited).toBe(true);
+
+    clearActionOtpCooldown(mockUserId, mockAction);
+    expect(checkActionOtpCooldown(mockUserId, mockAction).isRateLimited).toBe(false);
   });
 
   it("should track cooldown separately per action for the same user", () => {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { users, emailVerifications } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { users } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { getAuthPayload } from "@/lib/auth-session";
 import {
   generateOTP,
@@ -16,6 +16,16 @@ import {
 } from "@/lib/middleware/rateLimit";
 
 const COOLDOWN_WINDOW_MS = 60 * 1000;
+
+const ALLOWED_ACTIONS = new Set([
+  "default",
+  "transfer_confirm",
+  "withdraw",
+  "password_reset",
+  "email_verification",
+  "profile_update",
+  "login_2fa",
+]);
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,7 +42,11 @@ export async function POST(request: NextRequest) {
     let action = "default";
     try {
       const body = await request.json();
-      if (body && typeof body.action === "string" && body.action.trim()) {
+      if (
+        body &&
+        typeof body.action === "string" &&
+        ALLOWED_ACTIONS.has(body.action.trim())
+      ) {
         action = body.action.trim();
       }
     } catch {
@@ -62,37 +76,7 @@ export async function POST(request: NextRequest) {
       return response;
     }
 
-    // 2. Database backup check for latest verification creation
-    const latestVerification = await db.query.emailVerifications.findFirst({
-      where: eq(emailVerifications.userId, payload.userId),
-      orderBy: [desc(emailVerifications.createdAt)],
-      columns: { createdAt: true },
-    });
-
-    const now = Date.now();
-    if (
-      latestVerification &&
-      now - new Date(latestVerification.createdAt).getTime() < COOLDOWN_WINDOW_MS
-    ) {
-      const dbRetryAfterSeconds = Math.ceil(
-        (COOLDOWN_WINDOW_MS -
-          (now - new Date(latestVerification.createdAt).getTime())) /
-          1000,
-      );
-
-      const response = createProblemDetails(
-        "about:blank",
-        "Too Many Requests",
-        429,
-        `Rate limit exceeded. Please wait ${dbRetryAfterSeconds} seconds before requesting a new code.`,
-        undefined,
-        { retryAfterSeconds: dbRetryAfterSeconds },
-      );
-      response.headers.set("Retry-After", String(dbRetryAfterSeconds));
-      return response;
-    }
-
-    // 3. User verification
+    // 2. User verification
     const user = await db.query.users.findFirst({
       where: eq(users.id, payload.userId),
     });
@@ -115,7 +99,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 4. Overall OTP rate limit check
+    // 3. Overall OTP rate limit check
     const rateLimitResult = await checkOTPRequestRateLimitByUserId(user.id);
     if (!rateLimitResult.allowed) {
       const retryAfterSec = Math.ceil(
@@ -132,9 +116,6 @@ export async function POST(request: NextRequest) {
       response.headers.set("Retry-After", String(retryAfterSec));
       return response;
     }
-
-    // Record the request timestamp for cooldown tracking
-    recordActionOtpRequest(payload.userId, action);
 
     const otp = generateOTP();
     await storeOTP(user.id, otp);
@@ -157,6 +138,9 @@ export async function POST(request: NextRequest) {
         "Failed to send OTP email",
       );
     }
+
+    // Record the request timestamp for cooldown tracking ONLY after successful OTP email send
+    recordActionOtpRequest(payload.userId, action);
 
     return NextResponse.json(
       {

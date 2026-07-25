@@ -4,15 +4,12 @@ import { db } from "@/lib/db";
 import * as authSession from "@/lib/auth-session";
 import * as emailService from "@/server/services/emailService";
 import * as otpService from "@/server/services/otpService";
-import { resetCooldownStore } from "@/lib/middleware/rateLimit";
+import { resetCooldownStore, checkActionOtpCooldown } from "@/lib/middleware/rateLimit";
 
 jest.mock("@/lib/db", () => ({
   db: {
     query: {
       users: {
-        findFirst: jest.fn(),
-      },
-      emailVerifications: {
         findFirst: jest.fn(),
       },
     },
@@ -48,7 +45,6 @@ describe("POST /api/auth/action-otp/send Endpoint", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     resetCooldownStore();
-    (db.query.emailVerifications.findFirst as jest.Mock).mockResolvedValue(null);
   });
 
   it("should return 401 Unauthorized if not authenticated", async () => {
@@ -89,6 +85,25 @@ describe("POST /api/auth/action-otp/send Endpoint", () => {
     );
   });
 
+  it("should normalize unknown/unsupported action to 'default'", async () => {
+    (authSession.getAuthPayload as jest.Mock).mockResolvedValue({
+      userId: mockUser.id,
+      email: mockUser.email,
+    });
+    (db.query.users.findFirst as jest.Mock).mockResolvedValue(mockUser);
+
+    const request = new NextRequest("http://localhost/api/auth/action-otp/send", {
+      method: "POST",
+      body: JSON.stringify({ action: "malicious_unbounded_action_123" }),
+    });
+
+    const response = await actionOtpPOST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.action).toBe("default");
+  });
+
   it("should return 429 and Retry-After header when requested within 60s cooldown window", async () => {
     (authSession.getAuthPayload as jest.Mock).mockResolvedValue({
       userId: mockUser.id,
@@ -113,6 +128,29 @@ describe("POST /api/auth/action-otp/send Endpoint", () => {
 
     const body = await secondRes.json();
     expect(body.detail).toContain("Rate limit exceeded");
+  });
+
+  it("should NOT record cooldown if email sending fails", async () => {
+    (authSession.getAuthPayload as jest.Mock).mockResolvedValue({
+      userId: mockUser.id,
+      email: mockUser.email,
+    });
+    (db.query.users.findFirst as jest.Mock).mockResolvedValue(mockUser);
+    (emailService.sendVerificationEmail as jest.Mock).mockResolvedValueOnce({
+      success: false,
+      error: "SMTP Error",
+    });
+
+    const request = new NextRequest("http://localhost/api/auth/action-otp/send", {
+      method: "POST",
+      body: JSON.stringify({ action: "withdraw" }),
+    });
+
+    const response = await actionOtpPOST(request);
+    expect(response.status).toBe(500);
+
+    // Verify cooldown store is empty / not recorded for this action
+    expect(checkActionOtpCooldown(mockUser.id, "withdraw").isRateLimited).toBe(false);
   });
 
   it("should return 404 if authenticated user is not found in database", async () => {

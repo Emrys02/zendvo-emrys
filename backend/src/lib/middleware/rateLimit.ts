@@ -11,7 +11,19 @@ export interface CooldownCheckResult {
 }
 
 /**
+ * Prunes expired entries from the cooldown store to prevent memory leaks.
+ */
+function pruneExpiredEntries(now: number, cooldownMs: number = 60000): void {
+  for (const [key, lastTime] of Object.entries(store)) {
+    if (now - lastTime >= cooldownMs) {
+      delete store[key];
+    }
+  }
+}
+
+/**
  * Checks if the user is in a cooldown period for a specific action.
+ * Evicts expired entries for memory management.
  *
  * @param userId Authenticated user ID
  * @param action Action name (defaults to "default")
@@ -25,16 +37,23 @@ export function checkActionOtpCooldown(
 ): CooldownCheckResult {
   const key = `${userId}:${action}`;
   const now = Date.now();
+
+  pruneExpiredEntries(now, cooldownMs);
+
   const lastTime = store[key];
 
-  if (lastTime && now - lastTime < cooldownMs) {
-    const remainingMs = cooldownMs - (now - lastTime);
-    const retryAfterSeconds = Math.ceil(remainingMs / 1000);
-    return {
-      isRateLimited: true,
-      remainingMs,
-      retryAfterSeconds,
-    };
+  if (lastTime) {
+    if (now - lastTime < cooldownMs) {
+      const remainingMs = cooldownMs - (now - lastTime);
+      const retryAfterSeconds = Math.ceil(remainingMs / 1000);
+      return {
+        isRateLimited: true,
+        remainingMs,
+        retryAfterSeconds,
+      };
+    } else {
+      delete store[key];
+    }
   }
 
   return {
@@ -53,6 +72,17 @@ export function recordActionOtpRequest(
 ): void {
   const key = `${userId}:${action}`;
   store[key] = Date.now();
+}
+
+/**
+ * Clears the cooldown entry for a specific user ID and action.
+ */
+export function clearActionOtpCooldown(
+  userId: string,
+  action: string = "default",
+): void {
+  const key = `${userId}:${action}`;
+  delete store[key];
 }
 
 /**
