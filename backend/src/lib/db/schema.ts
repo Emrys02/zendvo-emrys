@@ -1,6 +1,7 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   doublePrecision,
   index,
   integer,
@@ -255,15 +256,40 @@ export const bankAccounts = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     userId: uuid("user_id").notNull().references(() => users.id),
+    bankName: text("bank_name").notNull(),
+    accountName: text("account_name").notNull(),
+    accountNumberCiphertext: text("account_number_ciphertext").notNull(),
+    accountNumberIv: text("account_number_iv").notNull(),
+    accountNumberAuthTag: text("account_number_auth_tag").notNull(),
+    accountNumberKeyVersion: integer("account_number_key_version")
+      .default(1)
+      .notNull(),
+    accountNumberLast4: text("account_number_last_4").notNull(),
+    accountNumberFingerprint: text("account_number_fingerprint").notNull(),
     country: text("country").notNull(),
     currency: text("currency").notNull(),
-    swiftBic: text("swift_bic").notNull(),
-    accountNumber: text("account_number").notNull(),
+    routingNumber: text("routing_number"),
+    sortCode: text("sort_code"),
+    bankCode: text("bank_code"),
+    swiftBic: text("swift_bic"),
+    isDefault: boolean("is_default").default(false).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (table) => [
     index("bank_accounts_user_id_idx").on(table.userId),
+    unique("bank_accounts_user_fingerprint_key").on(
+      table.userId,
+      table.accountNumberFingerprint,
+    ),
+    check(
+      "bank_accounts_last4_check",
+      sql`char_length(${table.accountNumberLast4}) = 4`,
+    ),
+    check(
+      "bank_accounts_key_version_check",
+      sql`${table.accountNumberKeyVersion} > 0`,
+    ),
   ],
 );
 
