@@ -44,6 +44,7 @@ import { POST as actionOtpPost } from "./api/auth/action-otp/route";
 import { POST as authPost } from "./api/auth/route";
 // Dashboard
 import { GET as dashboardStatsGet } from "./api/dashboard/stats/route";
+import { POST as giftsMetadataPost } from "./api/gifts/metadata/route";
 import { GET as dashboardGiftsGet } from "./api/dashboard/gifts/route";
 // Gifts
 import { POST as giftRedeemPost } from "./api/gifts/redeem/route";
@@ -110,6 +111,8 @@ apiRouter.post("/api/gifts/appreciate", makeExpressHandler(giftAppreciatePost));
 // 4. Upload routes
 apiRouter.post("/api/upload/image", limitUploadSize, makeExpressHandler(uploadImagePost));
 
+// 3. Gifts routes
+apiRouter.post("/api/gifts/metadata", makeExpressHandler(giftsMetadataPost));
 // 5. Users routes
 apiRouter.get("/api/users/resolve", makeExpressHandler(resolveRecipientGet));
 apiRouter.delete("/api/users/account", makeExpressHandler(deleteAccountDelete));
