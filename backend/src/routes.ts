@@ -65,6 +65,7 @@ import { POST as sendPhoneOtpPost } from "./api/auth/send-phone-otp/route";
 import { POST as sendVerificationPost } from "./api/auth/send-verification/route";
 import { POST as verifyEmailPost } from "./api/auth/verify-email/route";
 import { POST as verifyOtpPost } from "./api/auth/verify-otp/route";
+import { POST as verifyActionOtpPost } from "./api/auth/action-otp/verify/route";
 import { POST as verifyDeletionOtpPost } from "./api/auth/verify-deletion-otp/route";
 
 // Upload
@@ -89,6 +90,7 @@ apiRouter.post("/api/auth/send-phone-otp", makeExpressHandler(sendPhoneOtpPost))
 apiRouter.post("/api/auth/send-verification", makeExpressHandler(sendVerificationPost));
 apiRouter.post("/api/auth/verify-email", makeExpressHandler(verifyEmailPost));
 apiRouter.post("/api/auth/verify-otp", makeExpressHandler(verifyOtpPost));
+apiRouter.post("/api/auth/action-otp/verify", makeExpressHandler(verifyActionOtpPost));
 apiRouter.post("/api/auth/verify-deletion-otp", makeExpressHandler(verifyDeletionOtpPost));
 
 // 2. Dashboard routes
