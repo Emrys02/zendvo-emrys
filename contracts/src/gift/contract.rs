@@ -3,7 +3,7 @@ use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env};
 use crate::{
     core::{errors::ContractError, events::emit_initialized, utils::MIN_DEPOSIT_AMOUNT},
     gift::{
-        events::{self, emit_gift_cancelled, emit_gift_created},
+        events::{self, emit_gift_cancelled, emit_gift_claimed, emit_gift_created},
         storage::{
             self, get_gift_counter, get_token_address, remove_gift, set_gift, set_gift_counter,
         },
@@ -152,6 +152,46 @@ impl GiftContract {
         remove_gift(&env, gift_id);
 
         emit_gift_cancelled(&env, gift_id, &sender, gift.amount);
+
+        Ok(())
+    }
+
+    /// Claims a matured gift, transferring its locked USDC to `recipient`.
+    ///
+    /// Only the address recorded as `gift.recipient` may claim, and only once
+    /// the ledger's timestamp has reached `gift.unlock_time`. State is
+    /// mutated (`is_claimed = true`) and persisted before the token transfer
+    /// runs, so the double-spend flag can never be bypassed by a failed or
+    /// re-entrant transfer (checks-effects-interactions).
+    pub fn claim_gift(env: Env, recipient: Address, gift_id: u64) -> Result<(), ContractError> {
+        recipient.require_auth();
+
+        let mut gift: Gift = env
+            .storage()
+            .persistent()
+            .get(&DataKey::GiftRecord(gift_id))
+            .ok_or(ContractError::GiftNotFound)?;
+
+        if gift.recipient != recipient {
+            return Err(ContractError::Unauthorized);
+        }
+
+        if env.ledger().timestamp() < gift.unlock_time {
+            return Err(ContractError::TimeLockActive);
+        }
+
+        if gift.is_claimed {
+            return Err(ContractError::AlreadyClaimed);
+        }
+
+        gift.is_claimed = true;
+        set_gift(&env, gift_id, &gift);
+
+        let token_address = get_token_address(&env);
+        let token_client = token::Client::new(&env, &token_address);
+        token_client.transfer(&env.current_contract_address(), &recipient, &gift.amount);
+
+        emit_gift_claimed(&env, gift_id, &recipient, gift.amount);
 
         Ok(())
     }

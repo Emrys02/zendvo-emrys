@@ -1,7 +1,7 @@
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Events as _},
-    token, vec, Address, Env, IntoVal,
+    testutils::{Address as _, Events as _, Ledger as _},
+    token, vec, Address, Env, IntoVal, TryIntoVal,
 };
 
 use crate::core::utils::MIN_DEPOSIT_AMOUNT;
@@ -296,4 +296,162 @@ fn test_cancel_gift_already_claimed() {
         result.err().unwrap().unwrap(),
         crate::core::errors::ContractError::AlreadyClaimed,
     );
+}
+
+// ── claim_gift tests ─────────────────────────────────────────────────────────
+
+/// Happy path: recipient claims a matured gift and receives the funds.
+#[test]
+fn test_claim_gift_succeeds() {
+    let f = TestFixture::setup(100_000_000);
+
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    // Fast-forward past the unlock time.
+    f.env.ledger().set_timestamp(unlock_time);
+
+    let token_client = token::Client::new(&f.env, &f.token_id);
+    let recipient_balance_before = token_client.balance(&f.recipient);
+
+    f.client.claim_gift(&f.recipient, &gift_id);
+
+    assert_eq!(
+        token_client.balance(&f.recipient),
+        recipient_balance_before + MIN_DEPOSIT_AMOUNT
+    );
+    assert_eq!(token_client.balance(&f.contract_id), 0);
+}
+
+/// Claiming exactly at `unlock_time` (the boundary) must succeed, since the
+/// check is `now >= unlock_time`, not strictly greater.
+#[test]
+fn test_claim_gift_at_exact_unlock_time_succeeds() {
+    let f = TestFixture::setup(100_000_000);
+
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    f.env.ledger().set_timestamp(unlock_time);
+
+    let result = f.client.try_claim_gift(&f.recipient, &gift_id);
+    assert!(result.is_ok());
+}
+
+/// Sad path: claiming before `unlock_time` returns TimeLockActive.
+#[test]
+fn test_claim_gift_before_unlock_fails() {
+    let f = TestFixture::setup(100_000_000);
+
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    let result = f.client.try_claim_gift(&f.recipient, &gift_id);
+    assert_eq!(
+        result.err().unwrap().unwrap(),
+        crate::core::errors::ContractError::TimeLockActive,
+    );
+}
+
+/// Sad path: claiming a non-existent gift returns GiftNotFound.
+#[test]
+fn test_claim_gift_not_found() {
+    let f = TestFixture::setup(100_000_000);
+
+    let result = f.client.try_claim_gift(&f.recipient, &999);
+    assert_eq!(
+        result.err().unwrap().unwrap(),
+        crate::core::errors::ContractError::GiftNotFound,
+    );
+}
+
+/// Sad path: an address other than the recorded recipient cannot claim.
+#[test]
+fn test_claim_gift_wrong_recipient_fails() {
+    let f = TestFixture::setup(100_000_000);
+    let imposter = Address::generate(&f.env);
+
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    f.env.ledger().set_timestamp(unlock_time);
+
+    let result = f.client.try_claim_gift(&imposter, &gift_id);
+    assert_eq!(
+        result.err().unwrap().unwrap(),
+        crate::core::errors::ContractError::Unauthorized,
+    );
+}
+
+/// Sad path: a second claim attempt on an already-claimed gift fails and
+/// does not double-pay the recipient.
+#[test]
+fn test_claim_gift_double_claim_fails() {
+    let f = TestFixture::setup(100_000_000);
+
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    f.env.ledger().set_timestamp(unlock_time);
+
+    f.client.claim_gift(&f.recipient, &gift_id);
+
+    let token_client = token::Client::new(&f.env, &f.token_id);
+    let recipient_balance_after_first_claim = token_client.balance(&f.recipient);
+
+    let result = f.client.try_claim_gift(&f.recipient, &gift_id);
+    assert_eq!(
+        result.err().unwrap().unwrap(),
+        crate::core::errors::ContractError::AlreadyClaimed,
+    );
+    assert_eq!(
+        token_client.balance(&f.recipient),
+        recipient_balance_after_first_claim,
+        "balance must not change on a rejected double-claim"
+    );
+}
+
+/// Claiming a gift emits a GiftClmd event.
+#[test]
+fn test_claim_gift_emits_event() {
+    let f = TestFixture::setup(100_000_000);
+
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    f.env.ledger().set_timestamp(unlock_time);
+    f.client.claim_gift(&f.recipient, &gift_id);
+
+    let events = f.env.events().all();
+    let (contract, topics, data) = events.get(events.len() - 1).unwrap();
+    assert_eq!(contract, f.contract_id);
+
+    let topic0: soroban_sdk::Symbol = topics.get(0).unwrap().try_into_val(&f.env).unwrap();
+    assert_eq!(topic0, symbol_short!("GiftClmd"));
+
+    let topic1: Address = topics.get(1).unwrap().try_into_val(&f.env).unwrap();
+    assert_eq!(topic1, f.recipient);
+
+    let data_tuple: (u64, i128, u64) = data.try_into_val(&f.env).unwrap();
+    assert_eq!(data_tuple.0, gift_id);
+    assert_eq!(data_tuple.1, MIN_DEPOSIT_AMOUNT);
+    assert_eq!(data_tuple.2, unlock_time);
 }
