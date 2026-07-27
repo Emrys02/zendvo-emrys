@@ -227,8 +227,38 @@ fn test_create_gift_extends_ttl_to_cover_lock_duration() {
 
     assert_eq!(
         ttl,
-        (lock_seconds / 5) as u32,
-        "TTL should be bumped to cover ledgers until unlock_time"
+        (lock_seconds / 5) as u32 + 100,
+        "TTL should be bumped to cover ledgers until unlock_time plus the safety margin"
+    );
+}
+
+/// A lock duration that doesn't divide evenly by the 5s average ledger time
+/// must round its TTL bump up, never down, so the entry doesn't lapse a few
+/// seconds before unlock_time.
+#[test]
+fn test_create_gift_ttl_rounds_up_uneven_lock_duration() {
+    let f = TestFixture::setup(100_000_000);
+
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let lock_seconds: u64 = 500_003; // not evenly divisible by 5
+    let unlock_time = ledger_now + lock_seconds;
+
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    let ttl = f.env.as_contract(&f.contract_id, || {
+        f.env
+            .storage()
+            .persistent()
+            .get_ttl(&crate::gift::types::DataKey::GiftRecord(gift_id))
+    });
+
+    // Ceiling of 500_003 / 5 is 100_001, plus the 100-ledger safety margin.
+    assert_eq!(
+        ttl,
+        100_001 + 100,
+        "fractional ledger duration must round up, not truncate down"
     );
 }
 
