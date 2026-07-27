@@ -31,7 +31,7 @@ jest.mock("@/lib/db", () => ({
 
 jest.mock("@/lib/db/schema", () => ({
   users: { id: "id", passwordHash: "passwordHash" },
-  refreshTokens: {},
+  refreshTokens: { userId: "userId" },
 }));
 
 jest.mock("@/lib/auth", () => ({
@@ -67,7 +67,7 @@ describe("POST /api/users/change-password", () => {
   });
 
   it("should change password successfully with valid credentials", async () => {
-    const { POST } = await import("@/app/api/users/change-password/route");
+    const { POST } = await import("@/api/users/change-password/route");
     selectLimitMock.mockResolvedValue([
       { id: "user-123", passwordHash: "hashed-current-password" },
     ]);
@@ -91,14 +91,18 @@ describe("POST /api/users/change-password", () => {
     expect(comparePassword).toHaveBeenCalledWith(validCurrentPassword, "hashed-current-password");
     expect(hashPassword).toHaveBeenCalledWith(validNewPassword);
     expect(transactionMock).toHaveBeenCalledTimes(1);
-    expect(txUpdateSetMock).toHaveBeenCalledWith(
+    expect(txUpdateSetMock).toHaveBeenCalledTimes(2);
+    expect(txUpdateSetMock).toHaveBeenNthCalledWith(1,
       expect.objectContaining({ passwordHash: hashedNewPassword }),
     );
-    expect(txUpdateWhereMock).toHaveBeenCalled();
+    expect(txUpdateSetMock).toHaveBeenNthCalledWith(2,
+      { revokedAt: expect.any(Date) },
+    );
+    expect(txUpdateWhereMock).toHaveBeenCalledTimes(2);
   });
 
   it("should return 401 when not authenticated", async () => {
-    const { POST } = await import("@/app/api/users/change-password/route");
+    const { POST } = await import("@/api/users/change-password/route");
     (getAuthPayload as jest.Mock).mockResolvedValue(null);
 
     const request = new NextRequest("http://localhost/api/users/change-password", {
@@ -119,7 +123,7 @@ describe("POST /api/users/change-password", () => {
   });
 
   it("should return 400 when fields are missing", async () => {
-    const { POST } = await import("@/app/api/users/change-password/route");
+    const { POST } = await import("@/api/users/change-password/route");
 
     const request = new NextRequest("http://localhost/api/users/change-password", {
       method: "POST",
@@ -138,7 +142,7 @@ describe("POST /api/users/change-password", () => {
   });
 
   it("should return 400 when new password and confirm password do not match", async () => {
-    const { POST } = await import("@/app/api/users/change-password/route");
+    const { POST } = await import("@/api/users/change-password/route");
 
     const request = new NextRequest("http://localhost/api/users/change-password", {
       method: "POST",
@@ -158,7 +162,7 @@ describe("POST /api/users/change-password", () => {
   });
 
   it("should return 400 when new password is too weak", async () => {
-    const { POST } = await import("@/app/api/users/change-password/route");
+    const { POST } = await import("@/api/users/change-password/route");
     (validatePassword as jest.Mock).mockReturnValue(false);
 
     const request = new NextRequest("http://localhost/api/users/change-password", {
@@ -179,7 +183,7 @@ describe("POST /api/users/change-password", () => {
   });
 
   it("should return 401 when current password is incorrect", async () => {
-    const { POST } = await import("@/app/api/users/change-password/route");
+    const { POST } = await import("@/api/users/change-password/route");
     selectLimitMock.mockResolvedValue([
       { id: "user-123", passwordHash: "hashed-current-password" },
     ]);
@@ -203,7 +207,7 @@ describe("POST /api/users/change-password", () => {
   });
 
   it("should return 400 for invalid JSON body", async () => {
-    const { POST } = await import("@/app/api/users/change-password/route");
+    const { POST } = await import("@/api/users/change-password/route");
 
     const request = new NextRequest("http://localhost/api/users/change-password", {
       method: "POST",
@@ -219,7 +223,7 @@ describe("POST /api/users/change-password", () => {
   });
 
   it("should return 500 on unexpected error", async () => {
-    const { POST } = await import("@/app/api/users/change-password/route");
+    const { POST } = await import("@/api/users/change-password/route");
     (getAuthPayload as jest.Mock).mockRejectedValue(new Error("DB failure"));
 
     const request = new NextRequest("http://localhost/api/users/change-password", {
