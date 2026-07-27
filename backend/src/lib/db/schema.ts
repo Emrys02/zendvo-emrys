@@ -43,6 +43,8 @@ export const users = pgTable(
     lastOtpSentAt: timestamp("last_otp_sent_at"),
     isPhoneVerified: boolean("is_phone_verified").default(false).notNull(),
     phoneLast4: text("phone_last_4"),
+    is2faEnabled: boolean("is_2fa_enabled").default(false).notNull(),
+    totpSecret: text("totp_secret"),
   },
   (table) => {
     return [
