@@ -8,6 +8,14 @@ jest.mock("../../src/lib/auth-session", () => ({
   getAuthPayload: jest.fn(),
 }));
 
+jest.mock("../../src/lib/soroban", () => ({
+  buildSorobanRedeemTx: jest.fn(() => ({
+    contractId: "CC_TEST_CONTRACT",
+    txHash: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+    unsignedXdr: "AAAAAgAAAABzdHJlYW1pbmcgdGV4dA==",
+  })),
+}));
+
 jest.mock("../../src/lib/db", () => {
   const mockGifts: any[] = [];
   const mockWallets: any[] = [];
