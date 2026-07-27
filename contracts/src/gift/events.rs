@@ -49,6 +49,18 @@ pub fn emit_gift_cancelled(env: &Env, gift_id: u64, sender: &Address, amount: i1
     );
 }
 
+/// Emitted when a recipient claims a matured gift.
+///
+/// Topics : ["GiftClmd", recipient]
+/// Data   : (gift_id, amount, timestamp)
+pub fn emit_gift_claimed(env: &Env, gift_id: u64, recipient: &Address, amount: i128) {
+    let timestamp = env.ledger().timestamp();
+    env.events().publish(
+        (symbol_short!("GiftClmd"), recipient.clone()),
+        (gift_id, amount, timestamp),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::emit_gift_created;
