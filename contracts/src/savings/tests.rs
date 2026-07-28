@@ -610,6 +610,12 @@ fn test_collect_fees_does_not_touch_user_savings() {
             .get(&DataKey::UserSavingsRecord(f.user.clone()))
             .unwrap()
     });
-    assert_eq!(record.principal, principal, "user principal must not change");
-    assert_eq!(record.yield_shares, yield_shares, "user yield must not change");
+    assert_eq!(
+        record.principal, principal,
+        "user principal must not change"
+    );
+    assert_eq!(
+        record.yield_shares, yield_shares,
+        "user yield must not change"
+    );
 }

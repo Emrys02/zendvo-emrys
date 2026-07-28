@@ -31,4 +31,3 @@ pub fn emit_fees_collected(env: &Env, treasury: &Address, amount: i128) {
     env.events()
         .publish((symbol_short!("FeesCld"), treasury.clone()), amount);
 }
-

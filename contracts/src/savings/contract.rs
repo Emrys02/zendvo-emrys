@@ -172,4 +172,3 @@ impl SavingsContract {
         Ok(())
     }
 }
-
