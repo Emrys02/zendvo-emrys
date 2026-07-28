@@ -2,8 +2,8 @@
 // e.g., authorization checks, time validation helpers.
 // Handles stablecoin (USDC) transfers via soroban_sdk::token::Client.
 
-use soroban_sdk::Env;
 use crate::core::errors::ContractError;
+use soroban_sdk::Env;
 
 /// The minimum deposit amount accepted by the protocol, expressed in the
 /// native USDC stroops precision.
@@ -16,10 +16,10 @@ pub const MIN_DEPOSIT_AMOUNT: i128 = 10_000_000;
 /// Note: Must only be callable by the contract itself or a backend admin, not end-users.
 pub fn deposit_to_yield_protocol(_env: &Env, _amount: i128) -> Result<(), ContractError> {
     // TODO: Add authorization to ensure caller is the contract or backend admin.
-    
+
     // Placeholder: Cross-contract invocation logic.
     // e.g., env.invoke_contract(&protocol_address, &soroban_sdk::symbol_short!("deposit"), (amount,))
-    
+
     Ok(())
 }
 
@@ -27,9 +27,9 @@ pub fn deposit_to_yield_protocol(_env: &Env, _amount: i128) -> Result<(), Contra
 /// Note: Must only be callable by the contract itself or a backend admin, not end-users.
 pub fn withdraw_from_yield_protocol(_env: &Env, _amount: i128) -> Result<(), ContractError> {
     // TODO: Add authorization to ensure caller is the contract or backend admin.
-    
+
     // Placeholder: Cross-contract invocation logic.
     // e.g., env.invoke_contract(&protocol_address, &soroban_sdk::symbol_short!("withdraw"), (amount,))
-    
+
     Ok(())
 }
