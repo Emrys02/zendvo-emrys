@@ -11,14 +11,18 @@ pub struct SavingsContract;
 
 #[contractimpl]
 impl SavingsContract {
-    /// Initializes the contract with the USDC token contract address.
+    /// Initializes the contract with the USDC token contract address and the
+    /// admin address that is authorised to collect platform fees.
     ///
     /// Runs atomically at deploy time. The deployer's transaction signature
     /// is the trust root — no front-running window exists.
-    pub fn __constructor(env: Env, token_address: Address) {
+    pub fn __constructor(env: Env, admin: Address, token_address: Address) {
         env.storage()
             .instance()
             .set(&DataKey::TokenAddress, &token_address);
+        storage::set_admin(&env, &admin);
+        // Initialise the fee pool to zero so reads are always safe.
+        storage::set_platform_fees(&env, 0);
     }
 
     pub fn deposit_savings(env: Env, user: Address, amount: i128) -> Result<(), ContractError> {
@@ -113,6 +117,57 @@ impl SavingsContract {
         token_client.transfer(&env.current_contract_address(), &user, &amount);
 
         events::emit_savings_withdrawn(&env, &user, amount);
+
+        Ok(())
+    }
+
+    /// Drains the accumulated platform fee pool and transfers the full balance
+    /// to the admin's wallet (which acts as the treasury).
+    ///
+    /// # Security
+    /// - `admin.require_auth()` enforces Soroban's native signature verification.
+    /// - The stored admin address is re-read and compared against the caller,
+    ///   preventing any address spoofing across invocation contexts.
+    /// - State is mutated (reset to 0) **before** the external token transfer to
+    ///   eliminate any re-entrancy risk (checks-effects-interactions pattern).
+    ///
+    /// # Arguments
+    /// * `env`   - The Soroban execution environment.
+    /// * `admin` - The address authorised to receive collected fees (must match
+    ///             the admin stored at construction time).
+    ///
+    /// # Errors
+    /// * [`ContractError::Unauthorized`]    – caller ≠ stored admin.
+    /// * [`ContractError::NoFeesToCollect`] – fee pool balance is zero.
+    pub fn collect_fees(env: Env, admin: Address) -> Result<(), ContractError> {
+        // 1. Require a valid signature from the caller.
+        admin.require_auth();
+
+        // 2. Verify caller matches the stored admin — defence-in-depth against
+        //    any cross-context address confusion.
+        let stored_admin = storage::get_admin(&env);
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        // 3. Load the fee pool balance.
+        let fees = storage::get_platform_fees(&env);
+
+        // 4. Early return if there is nothing to collect.
+        if fees == 0 {
+            return Err(ContractError::NoFeesToCollect);
+        }
+
+        // 5. Reset to zero BEFORE the external call (checks-effects-interactions).
+        storage::set_platform_fees(&env, 0);
+
+        // 6. Transfer the exact snapshot from the contract to the admin/treasury.
+        let token_address = storage::get_token_address(&env);
+        let token_client = token::Client::new(&env, &token_address);
+        token_client.transfer(&env.current_contract_address(), &admin, &fees);
+
+        // 7. Emit a FeesCollected event for on-chain auditability.
+        events::emit_fees_collected(&env, &admin, fees);
 
         Ok(())
     }

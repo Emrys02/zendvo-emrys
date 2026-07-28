@@ -30,3 +30,42 @@ pub fn get_token_address(env: &Env) -> Address {
         .get(&DataKey::TokenAddress)
         .expect("token address not set")
 }
+
+// ── Admin ─────────────────────────────────────────────────────────────────────
+
+pub fn set_admin(env: &Env, admin: &Address) {
+    env.storage().instance().set(&DataKey::Admin, admin);
+}
+
+pub fn get_admin(env: &Env) -> Address {
+    env.storage()
+        .instance()
+        .get(&DataKey::Admin)
+        .expect("admin not set")
+}
+
+// ── Platform fees ─────────────────────────────────────────────────────────────
+
+/// Returns the current accumulated platform fee balance (defaults to 0).
+pub fn get_platform_fees(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::PlatformFees)
+        .unwrap_or(0i128)
+}
+
+/// Overwrites the stored platform fee balance.
+pub fn set_platform_fees(env: &Env, amount: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PlatformFees, &amount);
+}
+
+/// Atomically adds `delta` to the platform fee pool using checked arithmetic.
+/// Returns the new balance, or `None` on overflow.
+pub fn accumulate_platform_fees(env: &Env, delta: i128) -> Option<i128> {
+    let current = get_platform_fees(env);
+    let new_balance = current.checked_add(delta)?;
+    set_platform_fees(env, new_balance);
+    Some(new_balance)
+}
