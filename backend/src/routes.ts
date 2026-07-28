@@ -60,10 +60,9 @@ import { POST as giftAppreciatePost } from "./api/gifts/appreciate/route";
 import { GET as resolveRecipientGet } from "./api/users/resolve/route";
 import { DELETE as deleteAccountDelete } from "./api/users/account/route";
 import { PUT as updateProfilePut } from "./api/users/profile/route";
-import { POST as changePasswordPost } from "./api/users/security/route";
 import { POST as changePasswordPost } from "./api/users/change-password/route";
-import { POST as forgotPasswordPost } from "./api/auth/forgot-password/route";
 import { POST as toggle2faPost } from "./api/users/security/route";
+import { POST as forgotPasswordPost } from "./api/auth/forgot-password/route";
 import { POST as loginPost } from "./api/auth/login/route";
 import { POST as logoutPost } from "./api/auth/logout/route";
 import { GET as meGet } from "./api/auth/me/route";
@@ -160,10 +159,6 @@ apiRouter.post(
 
 // 3. Gifts routes
 apiRouter.post("/api/gifts/metadata", makeExpressHandler(giftsMetadataPost));
-// 5. Users routes
-apiRouter.get("/api/users/resolve", makeExpressHandler(resolveRecipientGet));
-apiRouter.delete("/api/users/account", makeExpressHandler(deleteAccountDelete));
-apiRouter.post("/api/users/change-password", makeExpressHandler(changePasswordPost));
 apiRouter.post("/api/users/2fa/toggle", makeExpressHandler(toggle2faPost));
 // 6. Wallet routes
 apiRouter.get("/api/wallet/balance", makeExpressHandler(walletBalanceGet));
