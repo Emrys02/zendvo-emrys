@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { transactions } from "@/lib/db/schema";
 import { getAuthPayload } from "@/lib/auth-session";
 import { createProblemDetails, paginatedResponse } from "@/lib/api-utils";
-import { eq } from "drizzle-orm";
+import { eq, desc, count } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
@@ -27,11 +27,11 @@ export async function GET(request: NextRequest) {
         .select()
         .from(transactions)
         .where(eq(transactions.userId, payload.userId))
-        .orderBy(transactions.createdAt.desc())
+        .orderBy(desc(transactions.createdAt))
         .limit(limit)
         .offset(offset),
       db
-        .select({ count: db.count() })
+        .select({ count: count() })
         .from(transactions)
         .where(eq(transactions.userId, payload.userId))
         .then((res) => Number(res[0].count)),
