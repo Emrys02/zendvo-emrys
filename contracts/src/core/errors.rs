@@ -35,4 +35,7 @@ pub enum ContractError {
 
     /// The user has no savings record found in storage.
     UserNotFound = 15,
+
+    /// The platform fee pool is empty; nothing to collect.
+    NoFeesToCollect = 16,
 }

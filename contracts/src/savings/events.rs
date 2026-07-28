@@ -22,3 +22,13 @@ pub fn emit_savings_withdrawn(env: &Env, user: &Address, amount: i128) {
     env.events()
         .publish((symbol_short!("SavWth"), user.clone()), amount);
 }
+
+/// Emitted when the admin drains the platform fee pool into the treasury.
+///
+/// Topics : ("FeesCld", treasury)
+/// Data   : amount_collected
+pub fn emit_fees_collected(env: &Env, treasury: &Address, amount: i128) {
+    env.events()
+        .publish((symbol_short!("FeesCld"), treasury.clone()), amount);
+}
+
