@@ -31,6 +31,17 @@ pub fn get_token_address(env: &Env) -> Address {
         .expect("token address not set")
 }
 
+pub fn get_is_paused(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::IsPaused)
+        .unwrap_or(false)
+}
+
+pub fn set_is_paused(env: &Env, is_paused: bool) {
+    env.storage().instance().set(&DataKey::IsPaused, &is_paused);
+}
+
 // ── Admin ─────────────────────────────────────────────────────────────────────
 
 pub fn set_admin(env: &Env, admin: &Address) {

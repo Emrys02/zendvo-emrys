@@ -545,3 +545,79 @@ fn test_claim_gift_emits_event() {
     assert_eq!(data_tuple.1, MIN_DEPOSIT_AMOUNT);
     assert_eq!(data_tuple.2, unlock_time);
 }
+
+// ── Circuit Breaker Tests ───────────────────────────────────────────────────
+
+#[test]
+fn test_pause_contract_unauthorized() {
+    let f = TestFixture::setup(100_000_000);
+    let imposter = Address::generate(&f.env);
+
+    let result = f.client.try_pause_contract(&imposter, &true);
+    assert_eq!(
+        result.err().unwrap().unwrap(),
+        crate::core::errors::ContractError::Unauthorized,
+    );
+}
+
+#[test]
+fn test_pause_contract_halts_create_gift() {
+    let f = TestFixture::setup(100_000_000);
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+
+    // Pause the contract.
+    f.client.pause_contract(&f.admin, &true);
+
+    // Creating a gift while paused must fail with ProtocolPaused.
+    let result =
+        f.client
+            .try_create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+    assert_eq!(
+        result.err().unwrap().unwrap(),
+        crate::core::errors::ContractError::ProtocolPaused,
+    );
+}
+
+#[test]
+fn test_unpause_restores_create_gift() {
+    let f = TestFixture::setup(100_000_000);
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+
+    // Pause and then unpause.
+    f.client.pause_contract(&f.admin, &true);
+    f.client.pause_contract(&f.admin, &false);
+
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+    assert_eq!(gift_id, 1);
+}
+
+#[test]
+fn test_pause_contract_allows_claims_and_cancels() {
+    let f = TestFixture::setup(100_000_000);
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+
+    // Create gift 1 before pausing.
+    let gift_id_1 =
+        f.client
+            .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    // Create gift 2 before pausing.
+    let gift_id_2 =
+        f.client
+            .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    // Pause the contract.
+    f.client.pause_contract(&f.admin, &true);
+
+    // Cancel gift 1 while paused: must succeed.
+    f.client.cancel_gift(&f.sender, &gift_id_1);
+
+    // Claim gift 2 while paused (after unlock_time): must succeed.
+    f.env.ledger().set_timestamp(unlock_time);
+    f.client.claim_gift(&f.recipient, &gift_id_2);
+}

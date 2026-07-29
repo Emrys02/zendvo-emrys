@@ -92,3 +92,18 @@ pub fn get_token_address(env: &Env) -> Address {
         .get(&DataKey::TokenAddress)
         .expect("token address not set")
 }
+
+// ── Circuit Breaker ──────────────────────────────────────────────────────────
+
+/// Reads the paused state. Defaults to false (unpaused) if unset.
+pub fn get_is_paused(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::IsPaused)
+        .unwrap_or(false)
+}
+
+/// Sets the paused state in instance storage.
+pub fn set_is_paused(env: &Env, is_paused: bool) {
+    env.storage().instance().set(&DataKey::IsPaused, &is_paused);
+}

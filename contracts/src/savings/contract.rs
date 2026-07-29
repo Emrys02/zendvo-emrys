@@ -12,7 +12,7 @@ pub struct SavingsContract;
 #[contractimpl]
 impl SavingsContract {
     /// Initializes the contract with the USDC token contract address and the
-    /// admin address that is authorised to collect platform fees.
+    /// admin address that is authorised to collect platform fees and toggle emergency stop.
     ///
     /// Runs atomically at deploy time. The deployer's transaction signature
     /// is the trust root — no front-running window exists.
@@ -26,6 +26,10 @@ impl SavingsContract {
     }
 
     pub fn deposit_savings(env: Env, user: Address, amount: i128) -> Result<(), ContractError> {
+        if storage::get_is_paused(&env) {
+            return Err(ContractError::ProtocolPaused);
+        }
+
         user.require_auth();
 
         if amount <= 0 {
@@ -121,6 +125,24 @@ impl SavingsContract {
         Ok(())
     }
 
+    /// Sets the emergency stop (circuit breaker) status for the savings contract.
+    ///
+    /// Requires authorization from the stored backend admin. When paused, new
+    /// deposits are halted while withdrawals and yield claims remain enabled.
+    pub fn pause_contract(env: Env, admin: Address, status: bool) -> Result<(), ContractError> {
+        admin.require_auth();
+
+        let stored_admin = storage::get_admin(&env);
+
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        storage::set_is_paused(&env, status);
+
+        Ok(())
+    }
+
     /// Drains the accumulated platform fee pool and transfers the full balance
     /// to the admin's wallet (which acts as the treasury).
     ///
@@ -146,6 +168,7 @@ impl SavingsContract {
         // 2. Verify caller matches the stored admin — defence-in-depth against
         //    any cross-context address confusion.
         let stored_admin = storage::get_admin(&env);
+
         if admin != stored_admin {
             return Err(ContractError::Unauthorized);
         }

@@ -9,6 +9,8 @@ pub enum DataKey {
     /// Accumulates platform fees (i128 USDC stroops) in a pool that is
     /// completely isolated from all `UserSavingsRecord` balances.
     PlatformFees,
+    /// Circuit breaker status flag (true if deposits are paused).
+    IsPaused,
 }
 
 #[contracttype]

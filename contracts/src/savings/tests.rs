@@ -62,7 +62,7 @@ impl<'a> TestFixture<'a> {
         let asset_client = token::StellarAssetClient::new(&env, &token_id);
         asset_client.mint(&token_id, &1_000_000_000);
 
-        // Deploy with constructor — admin + TokenAddress are set atomically.
+        // Deploy with constructor — Admin and TokenAddress are set atomically.
         let contract_id = env.register(SavingsContract, (admin.clone(), token_id.clone()));
         let client = SavingsContractClient::new(&env, &contract_id);
 
@@ -488,6 +488,60 @@ fn test_withdraw_savings_zero_amount_succeeds() {
         record.principal, 10_000,
         "principal unchanged when withdrawing 0"
     );
+}
+
+#[test]
+fn test_pause_contract_unauthorized() {
+    let f = TestFixture::setup();
+    let imposter = Address::generate(&f.env);
+
+    let result = f.client.try_pause_contract(&imposter, &true);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn test_pause_contract_halts_deposit_savings() {
+    let f = TestFixture::setup();
+    let asset_client = token::StellarAssetClient::new(&f.env, &f.token_id);
+    asset_client.mint(&f.user, &100_000_000);
+
+    // Pause contract.
+    f.client.pause_contract(&f.admin, &true);
+
+    // deposit_savings while paused must fail with ProtocolPaused.
+    let result = f.client.try_deposit_savings(&f.user, &20_000_000);
+    assert_eq!(result, Err(Ok(ContractError::ProtocolPaused)));
+}
+
+#[test]
+fn test_unpause_restores_deposit_savings() {
+    let f = TestFixture::setup();
+    let asset_client = token::StellarAssetClient::new(&f.env, &f.token_id);
+    asset_client.mint(&f.user, &100_000_000);
+
+    // Pause and then unpause.
+    f.client.pause_contract(&f.admin, &true);
+    f.client.pause_contract(&f.admin, &false);
+
+    let result = f.client.try_deposit_savings(&f.user, &20_000_000);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_pause_contract_allows_withdrawals_and_yield_claims() {
+    let f = TestFixture::setup();
+    seed_savings(&f.env, &f.contract_id, &f.user, 50_000_000, 5_000_000);
+
+    // Pause contract.
+    f.client.pause_contract(&f.admin, &true);
+
+    // Claim yield while paused: must succeed.
+    let claim_res = f.client.try_claim_yield(&f.user);
+    assert!(claim_res.is_ok());
+
+    // Withdraw savings while paused: must succeed.
+    let withdraw_res = f.client.try_withdraw_savings(&f.user, &20_000_000);
+    assert!(withdraw_res.is_ok());
 }
 
 // ── collect_fees tests ────────────────────────────────────────────────────────
