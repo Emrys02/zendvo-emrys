@@ -7,6 +7,7 @@ use soroban_sdk::contracterror;
 pub enum ContractError {
     AlreadyInitialized = 5,
     NotInitialized = 6,
+    ProtocolPaused = 7,
     GiftNotFound = 8,
     TimeLockNotExpired = 9,
     AlreadyClaimed = 10,
