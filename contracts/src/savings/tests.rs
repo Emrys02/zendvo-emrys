@@ -3,7 +3,7 @@
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events as _},
-    token, Address, Env, TryIntoVal,
+    token, Address, Env, IntoVal, TryIntoVal,
 };
 
 use crate::core::errors::ContractError;
@@ -85,6 +85,7 @@ impl<'a> TestFixture<'a> {
 #[test]
 fn test_constructor_stores_token_address() {
     let env = Env::default();
+    env.mock_all_auths();
     let admin = Address::generate(&env);
     let token_id = create_token(&env, &admin);
     let contract_id = env.register(SavingsContract, (admin.clone(), token_id.clone()));
@@ -489,8 +490,6 @@ fn test_withdraw_savings_zero_amount_succeeds() {
     );
 }
 
-// ── Circuit Breaker Tests ───────────────────────────────────────────────────
-
 #[test]
 fn test_pause_contract_unauthorized() {
     let f = TestFixture::setup();
@@ -543,4 +542,134 @@ fn test_pause_contract_allows_withdrawals_and_yield_claims() {
     // Withdraw savings while paused: must succeed.
     let withdraw_res = f.client.try_withdraw_savings(&f.user, &20_000_000);
     assert!(withdraw_res.is_ok());
+}
+
+// ── collect_fees tests ────────────────────────────────────────────────────────
+
+/// Seeds the platform fee pool directly in contract storage (bypasses auth).
+fn seed_platform_fees(env: &Env, contract_id: &Address, amount: i128) {
+    env.as_contract(contract_id, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::PlatformFees, &amount);
+    });
+}
+
+/// Reads the platform fee pool directly from contract storage.
+fn read_platform_fees(env: &Env, contract_id: &Address) -> i128 {
+    env.as_contract(contract_id, || {
+        env.storage()
+            .instance()
+            .get(&DataKey::PlatformFees)
+            .unwrap_or(0i128)
+    })
+}
+
+#[test]
+fn test_collect_fees_transfers_to_admin() {
+    let f = TestFixture::setup();
+    let fee_amount: i128 = 500_000; // 0.05 USDC in stroops
+    seed_platform_fees(&f.env, &f.contract_id, fee_amount);
+
+    let token_client = token::Client::new(&f.env, &f.token_id);
+    let admin_balance_before = token_client.balance(&f.admin);
+
+    f.client.collect_fees(&f.admin);
+
+    let admin_balance_after = token_client.balance(&f.admin);
+    assert_eq!(
+        admin_balance_after - admin_balance_before,
+        fee_amount,
+        "admin should receive exact fee amount"
+    );
+}
+
+#[test]
+fn test_collect_fees_resets_pool_to_zero() {
+    let f = TestFixture::setup();
+    seed_platform_fees(&f.env, &f.contract_id, 1_000_000);
+
+    f.client.collect_fees(&f.admin);
+
+    assert_eq!(
+        read_platform_fees(&f.env, &f.contract_id),
+        0,
+        "platform fee pool must be zeroed after collection"
+    );
+}
+
+#[test]
+fn test_collect_fees_emits_event() {
+    let f = TestFixture::setup();
+    let fee_amount: i128 = 250_000;
+    seed_platform_fees(&f.env, &f.contract_id, fee_amount);
+
+    f.client.collect_fees(&f.admin);
+
+    let events = f.env.events().all();
+    // The last event should be the FeesCollected event.
+    let last = events.last().unwrap();
+    let (_, topics, data) = last;
+    let expected_topics = soroban_sdk::vec![
+        &f.env,
+        symbol_short!("FeesCld").into_val(&f.env),
+        f.admin.clone().into_val(&f.env),
+    ];
+    assert_eq!(topics, expected_topics);
+    let collected: i128 = data.try_into_val(&f.env).unwrap();
+    assert_eq!(collected, fee_amount);
+}
+
+#[test]
+fn test_collect_fees_returns_error_when_pool_empty() {
+    let f = TestFixture::setup();
+    // Pool starts at 0 (set by constructor).
+    let result = f.client.try_collect_fees(&f.admin);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::NoFeesToCollect)),
+        "should return NoFeesToCollect when pool is zero"
+    );
+}
+
+#[test]
+fn test_collect_fees_rejects_non_admin() {
+    let f = TestFixture::setup();
+    seed_platform_fees(&f.env, &f.contract_id, 1_000_000);
+
+    let impostor = Address::generate(&f.env);
+    let result = f.client.try_collect_fees(&impostor);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::Unauthorized)),
+        "non-admin caller must be rejected"
+    );
+}
+
+#[test]
+fn test_collect_fees_does_not_touch_user_savings() {
+    let f = TestFixture::setup();
+    let principal: i128 = 50_000_000;
+    let yield_shares: i128 = 1_000_000;
+    seed_savings(&f.env, &f.contract_id, &f.user, principal, yield_shares);
+    seed_platform_fees(&f.env, &f.contract_id, 5_000_000);
+
+    f.client.collect_fees(&f.admin);
+
+    // User's record must be completely untouched.
+    let record: UserSavings = f.env.as_contract(&f.contract_id, || {
+        f.env
+            .storage()
+            .persistent()
+            .get(&DataKey::UserSavingsRecord(f.user.clone()))
+            .unwrap()
+    });
+    assert_eq!(
+        record.principal, principal,
+        "user principal must not change"
+    );
+    assert_eq!(
+        record.yield_shares, yield_shares,
+        "user yield must not change"
+    );
 }
