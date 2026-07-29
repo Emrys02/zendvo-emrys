@@ -11,17 +11,22 @@ pub struct SavingsContract;
 
 #[contractimpl]
 impl SavingsContract {
-    /// Initializes the contract with the USDC token contract address.
+    /// Initializes the contract with the backend admin address and USDC token contract address.
     ///
     /// Runs atomically at deploy time. The deployer's transaction signature
     /// is the trust root — no front-running window exists.
-    pub fn __constructor(env: Env, token_address: Address) {
+    pub fn __constructor(env: Env, admin: Address, token_address: Address) {
+        env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
             .set(&DataKey::TokenAddress, &token_address);
     }
 
     pub fn deposit_savings(env: Env, user: Address, amount: i128) -> Result<(), ContractError> {
+        if storage::get_is_paused(&env) {
+            return Err(ContractError::ProtocolPaused);
+        }
+
         user.require_auth();
 
         if amount <= 0 {
@@ -113,6 +118,28 @@ impl SavingsContract {
         token_client.transfer(&env.current_contract_address(), &user, &amount);
 
         events::emit_savings_withdrawn(&env, &user, amount);
+
+        Ok(())
+    }
+
+    /// Sets the emergency stop (circuit breaker) status for the savings contract.
+    ///
+    /// Requires authorization from the stored backend admin. When paused, new
+    /// deposits are halted while withdrawals and yield claims remain enabled.
+    pub fn pause_contract(env: Env, admin: Address, status: bool) -> Result<(), ContractError> {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("admin not set");
+
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        storage::set_is_paused(&env, status);
 
         Ok(())
     }
