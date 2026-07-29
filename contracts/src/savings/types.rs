@@ -4,6 +4,8 @@ use soroban_sdk::{contracttype, Address};
 pub enum DataKey {
     UserSavingsRecord(Address),
     TokenAddress,
+    Admin,
+    IsPaused,
 }
 
 #[contracttype]
