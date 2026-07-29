@@ -76,6 +76,10 @@ impl GiftContract {
         amount: i128,
         unlock_time: u64,
     ) -> Result<u64, ContractError> {
+        if storage::get_is_paused(&env) {
+            return Err(ContractError::ProtocolPaused);
+        }
+
         // ── Validate amount ───────────────────────────────────────────────
         if amount <= 0 {
             panic!("{}", ContractError::InvalidAmount as u32);
@@ -248,5 +252,27 @@ impl GiftContract {
         storage::set_gift(&env, gift_id, &gift);
 
         events::emit_recipient_updated(&env, gift_id, &sender, &old_recipient, &new_recipient);
+    }
+
+    /// Sets the emergency stop (circuit breaker) status for the gift contract.
+    ///
+    /// Requires authorization from the stored backend admin. When paused, new
+    /// gift creations are halted while claims and cancellations remain enabled.
+    pub fn pause_contract(env: Env, admin: Address, status: bool) -> Result<(), ContractError> {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("admin not set");
+
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        storage::set_is_paused(&env, status);
+
+        Ok(())
     }
 }
