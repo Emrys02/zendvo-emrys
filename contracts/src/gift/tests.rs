@@ -570,12 +570,9 @@ fn test_pause_contract_halts_create_gift() {
     f.client.pause_contract(&f.admin, &true);
 
     // Creating a gift while paused must fail with ProtocolPaused.
-    let result = f.client.try_create_gift(
-        &f.sender,
-        &f.recipient,
-        &MIN_DEPOSIT_AMOUNT,
-        &unlock_time,
-    );
+    let result =
+        f.client
+            .try_create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
     assert_eq!(
         result.err().unwrap().unwrap(),
         crate::core::errors::ContractError::ProtocolPaused,
@@ -605,17 +602,14 @@ fn test_pause_contract_allows_claims_and_cancels() {
     let unlock_time = ledger_now + 3600;
 
     // Create gift 1 before pausing.
-    let gift_id_1 = f
-        .client
-        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+    let gift_id_1 =
+        f.client
+            .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
 
     // Create gift 2 before pausing.
-    let gift_id_2 = f.client.create_gift(
-        &f.sender,
-        &f.recipient,
-        &MIN_DEPOSIT_AMOUNT,
-        &unlock_time,
-    );
+    let gift_id_2 =
+        f.client
+            .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
 
     // Pause the contract.
     f.client.pause_contract(&f.admin, &true);

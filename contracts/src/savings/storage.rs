@@ -39,7 +39,5 @@ pub fn get_is_paused(env: &Env) -> bool {
 }
 
 pub fn set_is_paused(env: &Env, is_paused: bool) {
-    env.storage()
-        .instance()
-        .set(&DataKey::IsPaused, &is_paused);
+    env.storage().instance().set(&DataKey::IsPaused, &is_paused);
 }
