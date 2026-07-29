@@ -62,8 +62,8 @@ impl<'a> TestFixture<'a> {
         let asset_client = token::StellarAssetClient::new(&env, &token_id);
         asset_client.mint(&token_id, &1_000_000_000);
 
-        // Deploy with constructor — TokenAddress is set atomically.
-        let contract_id = env.register(SavingsContract, (token_id.clone(),));
+        // Deploy with constructor — Admin and TokenAddress are set atomically.
+        let contract_id = env.register(SavingsContract, (admin.clone(), token_id.clone()));
         let client = SavingsContractClient::new(&env, &contract_id);
 
         // Mint USDC to the contract to simulate prior yield accrual.
@@ -87,7 +87,7 @@ fn test_constructor_stores_token_address() {
     let env = Env::default();
     let admin = Address::generate(&env);
     let token_id = create_token(&env, &admin);
-    let contract_id = env.register(SavingsContract, (token_id.clone(),));
+    let contract_id = env.register(SavingsContract, (admin.clone(), token_id.clone()));
 
     let stored: Address = env.as_contract(&contract_id, || {
         env.storage()
@@ -185,7 +185,7 @@ fn test_claim_yield_rejects_unauthorized() {
     let admin = Address::generate(&env);
     let user = Address::generate(&env);
     let token_id = create_token(&env, &admin);
-    let contract_id = env.register(SavingsContract, (token_id.clone(),));
+    let contract_id = env.register(SavingsContract, (admin.clone(), token_id.clone()));
     let client = SavingsContractClient::new(&env, &contract_id);
 
     let result = client.try_claim_yield(&user);
@@ -201,7 +201,7 @@ fn test_claim_yield_event() {
     let user = Address::generate(&env);
     let token_id = create_token(&env, &admin);
     let asset_client = token::StellarAssetClient::new(&env, &token_id);
-    let contract_id = env.register(SavingsContract, (token_id.clone(),));
+    let contract_id = env.register(SavingsContract, (admin.clone(), token_id.clone()));
     let client = SavingsContractClient::new(&env, &contract_id);
 
     // Mint so token transfer in claim_yield doesn't fail.
@@ -335,7 +335,7 @@ fn test_withdraw_savings_rejects_unauthorized() {
     let admin = Address::generate(&env);
     let user = Address::generate(&env);
     let token_id = create_token(&env, &admin);
-    let contract_id = env.register(SavingsContract, (token_id.clone(),));
+    let contract_id = env.register(SavingsContract, (admin.clone(), token_id.clone()));
     let client = SavingsContractClient::new(&env, &contract_id);
 
     let result = client.try_withdraw_savings(&user, &1_000);
@@ -351,7 +351,7 @@ fn test_withdraw_savings_event() {
     let user = Address::generate(&env);
     let token_id = create_token(&env, &admin);
     let asset_client = token::StellarAssetClient::new(&env, &token_id);
-    let contract_id = env.register(SavingsContract, (token_id.clone(),));
+    let contract_id = env.register(SavingsContract, (admin.clone(), token_id.clone()));
     let client = SavingsContractClient::new(&env, &contract_id);
 
     asset_client.mint(&contract_id, &1_000_000_000);
@@ -433,7 +433,7 @@ fn test_withdraw_savings_insufficient_balance_rollback() {
     let user = Address::generate(&env);
 
     let token_id = create_token(&env, &admin);
-    let contract_id = env.register(SavingsContract, (token_id.clone(),));
+    let contract_id = env.register(SavingsContract, (admin.clone(), token_id.clone()));
     let client = SavingsContractClient::new(&env, &contract_id);
 
     // Seed principal but do NOT mint any USDC to the contract
@@ -487,4 +487,60 @@ fn test_withdraw_savings_zero_amount_succeeds() {
         record.principal, 10_000,
         "principal unchanged when withdrawing 0"
     );
+}
+
+// ── Circuit Breaker Tests ───────────────────────────────────────────────────
+
+#[test]
+fn test_pause_contract_unauthorized() {
+    let f = TestFixture::setup();
+    let imposter = Address::generate(&f.env);
+
+    let result = f.client.try_pause_contract(&imposter, &true);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn test_pause_contract_halts_deposit_savings() {
+    let f = TestFixture::setup();
+    let asset_client = token::StellarAssetClient::new(&f.env, &f.token_id);
+    asset_client.mint(&f.user, &100_000_000);
+
+    // Pause contract.
+    f.client.pause_contract(&f.admin, &true);
+
+    // deposit_savings while paused must fail with ProtocolPaused.
+    let result = f.client.try_deposit_savings(&f.user, &20_000_000);
+    assert_eq!(result, Err(Ok(ContractError::ProtocolPaused)));
+}
+
+#[test]
+fn test_unpause_restores_deposit_savings() {
+    let f = TestFixture::setup();
+    let asset_client = token::StellarAssetClient::new(&f.env, &f.token_id);
+    asset_client.mint(&f.user, &100_000_000);
+
+    // Pause and then unpause.
+    f.client.pause_contract(&f.admin, &true);
+    f.client.pause_contract(&f.admin, &false);
+
+    let result = f.client.try_deposit_savings(&f.user, &20_000_000);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_pause_contract_allows_withdrawals_and_yield_claims() {
+    let f = TestFixture::setup();
+    seed_savings(&f.env, &f.contract_id, &f.user, 50_000_000, 5_000_000);
+
+    // Pause contract.
+    f.client.pause_contract(&f.admin, &true);
+
+    // Claim yield while paused: must succeed.
+    let claim_res = f.client.try_claim_yield(&f.user);
+    assert!(claim_res.is_ok());
+
+    // Withdraw savings while paused: must succeed.
+    let withdraw_res = f.client.try_withdraw_savings(&f.user, &20_000_000);
+    assert!(withdraw_res.is_ok());
 }
