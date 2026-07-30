@@ -49,6 +49,8 @@ const limitUploadSize = (req: Request, res: Response, next: NextFunction) => {
 // Auth
 import { POST as actionOtpPost } from "./api/auth/action-otp/route";
 import { POST as authPost } from "./api/auth/route";
+// Wallet
+import { GET as walletTransactionsGet } from "./api/wallet/transactions/route";
 // Dashboard
 import { GET as dashboardStatsGet } from "./api/dashboard/stats/route";
 import { POST as giftsMetadataPost } from "./api/gifts/metadata/route";
@@ -157,15 +159,6 @@ apiRouter.post(
   makeExpressHandler(uploadImagePost),
 );
 
-// 3. Gifts routes
-apiRouter.post("/api/gifts/metadata", makeExpressHandler(giftsMetadataPost));
-apiRouter.post("/api/users/2fa/toggle", makeExpressHandler(toggle2faPost));
-// 6. Wallet routes
-apiRouter.get("/api/wallet/balance", makeExpressHandler(walletBalanceGet));
-apiRouter.get("/api/wallet/banks", makeExpressHandler(bankAccountsGet));
-apiRouter.post("/api/wallet/banks", makeExpressHandler(bankAccountsPost));
-apiRouter.put("/api/wallet/banks/:id", makeExpressHandler(bankAccountsPut));
-apiRouter.delete(
-  "/api/wallet/banks/:id",
-  makeExpressHandler(unlinkBankAccountDelete),
-);
+// 3. Wallet routes
+apiRouter.get("/api/wallet/transactions", makeExpressHandler(walletTransactionsGet));
+
