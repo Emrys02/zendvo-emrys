@@ -1,6 +1,7 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   doublePrecision,
   index,
   integer,
@@ -17,8 +18,8 @@ export const userStatusEnum = pgEnum("user_status", [
   "unverified",
   "active",
   "suspended",
+  "deleted",
 ]);
-
 
 export const users = pgTable(
   "users",
@@ -42,6 +43,8 @@ export const users = pgTable(
     lastOtpSentAt: timestamp("last_otp_sent_at"),
     isPhoneVerified: boolean("is_phone_verified").default(false).notNull(),
     phoneLast4: text("phone_last_4"),
+    is2faEnabled: boolean("is_2fa_enabled").default(false).notNull(),
+    totpSecret: text("totp_secret"),
   },
   (table) => {
     return [
@@ -67,12 +70,38 @@ export const emailVerifications = pgTable(
     attempts: integer("attempts").default(0).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     isUsed: boolean("is_used").default(false).notNull(),
+    /**
+     * Scopes this OTP record to a specific sensitive action.
+     * NULL for general-purpose OTPs (e.g. email verification at signup).
+     * Must be set when issuing OTPs for privileged actions so that a code
+     * generated for one action cannot be redeemed for a different one.
+     */
+    action: text("action"),
   },
   (table) => {
     return [
       index("ev_user_id_idx").on(table.userId),
       index("ev_expires_at_idx").on(table.expiresAt),
+      index("ev_user_action_idx").on(table.userId, table.action),
     ];
+  },
+);
+
+/**
+ * Tracks consumed action-token JTIs to enforce single-use semantics.
+ * A cron job should periodically purge rows where expiresAt < now().
+ */
+export const usedActionTokens = pgTable(
+  "used_action_tokens",
+  {
+    /** The JWT ID claim from the action token. */
+    jti: text("jti").primaryKey(),
+    /** Mirrors the token's exp claim — used by the cleanup cron. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => {
+    return [index("uat_expires_at_idx").on(table.expiresAt)];
   },
 );
 
@@ -229,15 +258,40 @@ export const bankAccounts = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     userId: uuid("user_id").notNull().references(() => users.id),
+    bankName: text("bank_name").notNull(),
+    accountName: text("account_name").notNull(),
+    accountNumberCiphertext: text("account_number_ciphertext").notNull(),
+    accountNumberIv: text("account_number_iv").notNull(),
+    accountNumberAuthTag: text("account_number_auth_tag").notNull(),
+    accountNumberKeyVersion: integer("account_number_key_version")
+      .default(1)
+      .notNull(),
+    accountNumberLast4: text("account_number_last_4").notNull(),
+    accountNumberFingerprint: text("account_number_fingerprint").notNull(),
     country: text("country").notNull(),
     currency: text("currency").notNull(),
-    swiftBic: text("swift_bic").notNull(),
-    accountNumber: text("account_number").notNull(),
+    routingNumber: text("routing_number"),
+    sortCode: text("sort_code"),
+    bankCode: text("bank_code"),
+    swiftBic: text("swift_bic"),
+    isDefault: boolean("is_default").default(false).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (table) => [
     index("bank_accounts_user_id_idx").on(table.userId),
+    unique("bank_accounts_user_fingerprint_key").on(
+      table.userId,
+      table.accountNumberFingerprint,
+    ),
+    check(
+      "bank_accounts_last4_check",
+      sql`char_length(${table.accountNumberLast4}) = 4`,
+    ),
+    check(
+      "bank_accounts_key_version_check",
+      sql`${table.accountNumberKeyVersion} > 0`,
+    ),
   ],
 );
 
@@ -263,6 +317,41 @@ export const transactions = pgTable(
   ],
 );
 
+export const giftsMetadata = pgTable("gifts_metadata", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  contractGiftId: text("contract_gift_id").notNull(),
+  userId: uuid("user_id").notNull().references(() => users.id),
+  message: text("message"),
+  hideAmount: boolean("hide_amount").default(false).notNull(),
+  stayAnonymous: boolean("stay_anonymous").default(false).notNull(),
+  imageUrl: text("image_url"),
+  processingFee: doublePrecision("processing_fee").default(0).notNull(),
+  status: text("status").default("pending").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const actionTokens = pgTable(
+  "action_tokens",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    token: text("token").notNull().unique(),
+    action: text("action").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    usedAt: timestamp("used_at"),
+    revokedAt: timestamp("revoked_at"),
+  },
+  (table) => [
+    index("at_user_id_idx").on(table.userId),
+    index("at_token_idx").on(table.token),
+    index("at_expires_at_idx").on(table.expiresAt),
+  ],
+);
+
 export const webhookRetryQueue = pgTable("WebhookRetryQueue", {
   id: uuid("id").defaultRandom().primaryKey(),
   eventType: text("event_type").notNull(),
@@ -279,12 +368,14 @@ export const usersRelations = relations(users, ({ many }) => ({
   emailVerifications: many(emailVerifications),
   passwordResets: many(passwordResets),
   refreshTokens: many(refreshTokens),
+  actionTokens: many(actionTokens),
   wallets: many(wallets),
   notifications: many(notifications),
   sentGifts: many(gifts, { relationName: "sentGifts" }),
   receivedGifts: many(gifts, { relationName: "receivedGifts" }),
   bankAccounts: many(bankAccounts),
   transactions: many(transactions),
+  giftsMetadata: many(giftsMetadata),
 }));
 
 export const emailVerificationsRelations = relations(
@@ -307,6 +398,13 @@ export const passwordResetsRelations = relations(passwordResets, ({ one }) => ({
 export const refreshTokensRelations = relations(refreshTokens, ({ one }) => ({
   user: one(users, {
     fields: [refreshTokens.userId],
+    references: [users.id],
+  }),
+}));
+
+export const actionTokensRelations = relations(actionTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [actionTokens.userId],
     references: [users.id],
   }),
 }));
@@ -341,3 +439,9 @@ export const transactionsRelations = relations(transactions, ({ one }) => ({
   user: one(users, { fields: [transactions.userId], references: [users.id] }),
   wallet: one(wallets, { fields: [transactions.walletId], references: [wallets.id] }),
 }));
+
+export const giftsMetadataRelations = relations(giftsMetadata, ({ one }) => ({
+  user: one(users, { fields: [giftsMetadata.userId], references: [users.id] }),
+}));
+
+export const webhookRetryQueueRelations = relations(webhookRetryQueue, () => ({}));

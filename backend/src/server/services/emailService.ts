@@ -465,6 +465,96 @@ function generateBaseTemplate({
   `.trim();
 }
 
+export async function sendActionOtpEmail(
+  email: string,
+  otp: string,
+  action: string,
+  userName?: string,
+) {
+  const actionLabels: Record<string, string> = {
+    delete_account: "Account Deletion",
+    disable_2fa: "Disable Two-Factor Authentication",
+    change_email: "Change Email Address",
+    change_password: "Change Password",
+    withdraw_funds: "Withdraw Funds",
+    default: "Sensitive Action",
+  };
+
+  const actionLabel = actionLabels[action] || "Sensitive Action";
+
+  const mailOptions = {
+    from: `"Zendvo" <${EMAIL_CONFIG.auth.user}>`,
+    to: email,
+    subject: `${actionLabel} Verification Code - Zendvo`,
+    html: generateActionOtpTemplate(otp, actionLabel, userName),
+    text: `Your Zendvo ${actionLabel} verification code is: ${otp}\n\nThis code will expire in 10 minutes.\n\nIf you didn't request this code, please ignore this email.`,
+  };
+
+  try {
+    if (process.env.NODE_ENV === "development") {
+      console.log("=".repeat(50));
+      console.log(`ACTION OTP EMAIL (Development Mode)`);
+      console.log("=".repeat(50));
+      console.log(`Action: ${actionLabel}`);
+      console.log(`To: ${email}`);
+      console.log(`OTP Code: ${otp}`);
+      console.log(`Expires: 10 minutes`);
+      console.log("=".repeat(50));
+      return {
+        success: true,
+        messageId: "dev-mode",
+        message: "Action OTP logged to console (development mode)",
+      };
+    }
+
+    const info = await transporter.sendMail(mailOptions);
+    return {
+      success: true,
+      messageId: info.messageId,
+      message: "Action OTP email sent successfully",
+    };
+  } catch (error) {
+    console.error("Error sending action OTP email:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+      message: "Failed to send action OTP email",
+      detail: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+function generateActionOtpTemplate(
+  otp: string,
+  actionLabel: string,
+  userName?: string,
+): string {
+  return generateBaseTemplate({
+    title: `${actionLabel} Verification`,
+    userName,
+    content: `
+      <p style="margin: 0 0 20px; color: #4a5568; font-size: 16px; line-height: 1.6;">
+        You are attempting to <strong>${actionLabel}</strong> on your Zendvo account. 
+        To proceed, please use the verification code below:
+      </p>
+      
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin: 30px 0;">
+        <tr>
+          <td align="center" style="background-color: #f7fafc; border: 2px dashed #667eea; border-radius: 8px; padding: 30px;">
+            <div style="font-size: 36px; font-weight: 700; color: #667eea; letter-spacing: 8px; font-family: 'Courier New', monospace;">
+              ${otp}
+            </div>
+          </td>
+        </tr>
+      </table>
+      
+      <p style="margin: 20px 0; color: #4a5568; font-size: 14px; line-height: 1.6;">
+        <strong>⏰ This code will expire in 10 minutes.</strong>
+      </p>
+    `,
+  });
+}
+
 export async function sendGiftConfirmationOTP(
   email: string,
   otp: string,
@@ -667,3 +757,79 @@ export async function sendGiftNotificationToRecipient(
     };
   }
 }
+
+export async function sendAppreciationEmailToSender(options: {
+  senderEmail: string;
+  senderName?: string | null;
+  recipientName?: string | null;
+  message?: string | null;
+  template?: string | null;
+  amount?: number;
+  currency?: string;
+}) {
+  const { senderEmail, senderName, recipientName, message, template, amount, currency } = options;
+  const thankYouText = message || template || "Thank you for the wonderful gift!";
+  const displaySender = senderName || "Friend";
+  const displayRecipient = recipientName || "The recipient";
+  const giftContext = amount && currency ? ` for the ${amount} ${currency} gift` : "";
+
+  const content = `
+    <p style="margin: 0 0 20px; color: #4a5568; font-size: 16px; line-height: 1.6;">
+      <strong>${displayRecipient}</strong> sent you an appreciation note${giftContext}!
+    </p>
+
+    <div style="background-color: #fffaf0; border-left: 4px solid #ed8936; padding: 20px; margin: 20px 0; border-radius: 4px;">
+      <p style="margin: 0; color: #7b341e; font-size: 16px; font-style: italic; line-height: 1.6;">
+        "${thankYouText}"
+      </p>
+    </div>
+
+    <p style="margin: 20px 0 0; color: #718096; font-size: 14px; line-height: 1.6;">
+      Thank you for making digital gifting magical with Zendvo!
+    </p>
+  `;
+
+  const mailOptions = {
+    from: `"Zendvo" <${EMAIL_CONFIG.auth.user}>`,
+    to: senderEmail,
+    subject: `💖 Thank You Note from ${displayRecipient}!`,
+    html: generateBaseTemplate({
+      title: "Appreciation Received",
+      userName: displaySender,
+      content,
+    }),
+    text: `${displayRecipient} sent you an appreciation note${giftContext}:\n\n"${thankYouText}"\n\nThank you for using Zendvo!`,
+  };
+
+  try {
+    if (process.env.NODE_ENV === "development") {
+      console.log("=".repeat(50));
+      console.log("📧 APPRECIATION EMAIL (Development Mode)");
+      console.log("=".repeat(50));
+      console.log(`To: ${senderEmail}`);
+      console.log(`From: ${displayRecipient}`);
+      console.log(`Note: ${thankYouText}`);
+      console.log("=".repeat(50));
+      return {
+        success: true,
+        messageId: "dev-mode",
+        message: "Appreciation email logged to console (development mode)",
+      };
+    }
+
+    const info = await transporter.sendMail(mailOptions);
+    return {
+      success: true,
+      messageId: info.messageId,
+      message: "Appreciation email sent successfully",
+    };
+  } catch (error) {
+    console.error("Error sending appreciation email:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+      message: "Failed to send appreciation email",
+    };
+  }
+}
+

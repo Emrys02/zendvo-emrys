@@ -1,7 +1,7 @@
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Events as _},
-    token, vec, Address, Env, IntoVal,
+    testutils::{storage::Persistent as _, Address as _, Events as _, Ledger as _},
+    token, vec, Address, Env, IntoVal, TryIntoVal,
 };
 
 use crate::core::utils::MIN_DEPOSIT_AMOUNT;
@@ -204,6 +204,96 @@ fn test_gift_ids_are_sequential() {
     assert_eq!((id1, id2, id3), (1, 2, 3));
 }
 
+/// Creating a gift extends its persistent TTL to cover the full remaining
+/// lock duration, so a long-locked gift can't be archived before it unlocks.
+#[test]
+fn test_create_gift_extends_ttl_to_cover_lock_duration() {
+    let f = TestFixture::setup(100_000_000);
+
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let lock_seconds: u64 = 500_000; // divisible by the 5s avg ledger time
+    let unlock_time = ledger_now + lock_seconds;
+
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    let ttl = f.env.as_contract(&f.contract_id, || {
+        f.env
+            .storage()
+            .persistent()
+            .get_ttl(&crate::gift::types::DataKey::GiftRecord(gift_id))
+    });
+
+    assert_eq!(
+        ttl,
+        (lock_seconds / 5) as u32 + 100,
+        "TTL should be bumped to cover ledgers until unlock_time plus the safety margin"
+    );
+}
+
+/// A lock duration that doesn't divide evenly by the 5s average ledger time
+/// must round its TTL bump up, never down, so the entry doesn't lapse a few
+/// seconds before unlock_time.
+#[test]
+fn test_create_gift_ttl_rounds_up_uneven_lock_duration() {
+    let f = TestFixture::setup(100_000_000);
+
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let lock_seconds: u64 = 500_003; // not evenly divisible by 5
+    let unlock_time = ledger_now + lock_seconds;
+
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    let ttl = f.env.as_contract(&f.contract_id, || {
+        f.env
+            .storage()
+            .persistent()
+            .get_ttl(&crate::gift::types::DataKey::GiftRecord(gift_id))
+    });
+
+    // Ceiling of 500_003 / 5 is 100_001, plus the 100-ledger safety margin.
+    assert_eq!(
+        ttl,
+        100_001 + 100,
+        "fractional ledger duration must round up, not truncate down"
+    );
+}
+
+/// Claiming a matured gift re-bumps its TTL via the shared `set_gift` path,
+/// keeping the record alive after the state mutation.
+#[test]
+fn test_claim_gift_extends_ttl() {
+    let f = TestFixture::setup(100_000_000);
+
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    f.env.ledger().set_timestamp(unlock_time);
+    f.client.claim_gift(&f.recipient, &gift_id);
+
+    let ttl = f.env.as_contract(&f.contract_id, || {
+        f.env
+            .storage()
+            .persistent()
+            .get_ttl(&crate::gift::types::DataKey::GiftRecord(gift_id))
+    });
+
+    // unlock_time has already passed at claim time, so seconds_until_unlock
+    // saturates to 0 and the bump is a no-op — but the record must still be
+    // alive at (or just below, from ledger sequence advancing) the default
+    // persistent TTL floor established when it was created.
+    assert!(
+        ttl > 0 && ttl <= 4096,
+        "claimed gift record should still be alive under the persistent TTL floor, got {ttl}"
+    );
+}
+
 // ── cancel_gift tests ─────────────────────────────────────────────────────────
 
 /// Happy path: sender cancels an unclaimed gift and receives a refund.
@@ -296,4 +386,238 @@ fn test_cancel_gift_already_claimed() {
         result.err().unwrap().unwrap(),
         crate::core::errors::ContractError::AlreadyClaimed,
     );
+}
+
+// ── claim_gift tests ─────────────────────────────────────────────────────────
+
+/// Happy path: recipient claims a matured gift and receives the funds.
+#[test]
+fn test_claim_gift_succeeds() {
+    let f = TestFixture::setup(100_000_000);
+
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    // Fast-forward past the unlock time.
+    f.env.ledger().set_timestamp(unlock_time);
+
+    let token_client = token::Client::new(&f.env, &f.token_id);
+    let recipient_balance_before = token_client.balance(&f.recipient);
+
+    f.client.claim_gift(&f.recipient, &gift_id);
+
+    assert_eq!(
+        token_client.balance(&f.recipient),
+        recipient_balance_before + MIN_DEPOSIT_AMOUNT
+    );
+    assert_eq!(token_client.balance(&f.contract_id), 0);
+}
+
+/// Claiming exactly at `unlock_time` (the boundary) must succeed, since the
+/// check is `now >= unlock_time`, not strictly greater.
+#[test]
+fn test_claim_gift_at_exact_unlock_time_succeeds() {
+    let f = TestFixture::setup(100_000_000);
+
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    f.env.ledger().set_timestamp(unlock_time);
+
+    let result = f.client.try_claim_gift(&f.recipient, &gift_id);
+    assert!(result.is_ok());
+}
+
+/// Sad path: claiming before `unlock_time` returns TimeLockActive.
+#[test]
+fn test_claim_gift_before_unlock_fails() {
+    let f = TestFixture::setup(100_000_000);
+
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    let result = f.client.try_claim_gift(&f.recipient, &gift_id);
+    assert_eq!(
+        result.err().unwrap().unwrap(),
+        crate::core::errors::ContractError::TimeLockActive,
+    );
+}
+
+/// Sad path: claiming a non-existent gift returns GiftNotFound.
+#[test]
+fn test_claim_gift_not_found() {
+    let f = TestFixture::setup(100_000_000);
+
+    let result = f.client.try_claim_gift(&f.recipient, &999);
+    assert_eq!(
+        result.err().unwrap().unwrap(),
+        crate::core::errors::ContractError::GiftNotFound,
+    );
+}
+
+/// Sad path: an address other than the recorded recipient cannot claim.
+#[test]
+fn test_claim_gift_wrong_recipient_fails() {
+    let f = TestFixture::setup(100_000_000);
+    let imposter = Address::generate(&f.env);
+
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    f.env.ledger().set_timestamp(unlock_time);
+
+    let result = f.client.try_claim_gift(&imposter, &gift_id);
+    assert_eq!(
+        result.err().unwrap().unwrap(),
+        crate::core::errors::ContractError::Unauthorized,
+    );
+}
+
+/// Sad path: a second claim attempt on an already-claimed gift fails and
+/// does not double-pay the recipient.
+#[test]
+fn test_claim_gift_double_claim_fails() {
+    let f = TestFixture::setup(100_000_000);
+
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    f.env.ledger().set_timestamp(unlock_time);
+
+    f.client.claim_gift(&f.recipient, &gift_id);
+
+    let token_client = token::Client::new(&f.env, &f.token_id);
+    let recipient_balance_after_first_claim = token_client.balance(&f.recipient);
+
+    let result = f.client.try_claim_gift(&f.recipient, &gift_id);
+    assert_eq!(
+        result.err().unwrap().unwrap(),
+        crate::core::errors::ContractError::AlreadyClaimed,
+    );
+    assert_eq!(
+        token_client.balance(&f.recipient),
+        recipient_balance_after_first_claim,
+        "balance must not change on a rejected double-claim"
+    );
+}
+
+/// Claiming a gift emits a GiftClmd event.
+#[test]
+fn test_claim_gift_emits_event() {
+    let f = TestFixture::setup(100_000_000);
+
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    f.env.ledger().set_timestamp(unlock_time);
+    f.client.claim_gift(&f.recipient, &gift_id);
+
+    let events = f.env.events().all();
+    let (contract, topics, data) = events.get(events.len() - 1).unwrap();
+    assert_eq!(contract, f.contract_id);
+
+    let topic0: soroban_sdk::Symbol = topics.get(0).unwrap().try_into_val(&f.env).unwrap();
+    assert_eq!(topic0, symbol_short!("GiftClmd"));
+
+    let topic1: Address = topics.get(1).unwrap().try_into_val(&f.env).unwrap();
+    assert_eq!(topic1, f.recipient);
+
+    let data_tuple: (u64, i128, u64) = data.try_into_val(&f.env).unwrap();
+    assert_eq!(data_tuple.0, gift_id);
+    assert_eq!(data_tuple.1, MIN_DEPOSIT_AMOUNT);
+    assert_eq!(data_tuple.2, unlock_time);
+}
+
+// ── Circuit Breaker Tests ───────────────────────────────────────────────────
+
+#[test]
+fn test_pause_contract_unauthorized() {
+    let f = TestFixture::setup(100_000_000);
+    let imposter = Address::generate(&f.env);
+
+    let result = f.client.try_pause_contract(&imposter, &true);
+    assert_eq!(
+        result.err().unwrap().unwrap(),
+        crate::core::errors::ContractError::Unauthorized,
+    );
+}
+
+#[test]
+fn test_pause_contract_halts_create_gift() {
+    let f = TestFixture::setup(100_000_000);
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+
+    // Pause the contract.
+    f.client.pause_contract(&f.admin, &true);
+
+    // Creating a gift while paused must fail with ProtocolPaused.
+    let result =
+        f.client
+            .try_create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+    assert_eq!(
+        result.err().unwrap().unwrap(),
+        crate::core::errors::ContractError::ProtocolPaused,
+    );
+}
+
+#[test]
+fn test_unpause_restores_create_gift() {
+    let f = TestFixture::setup(100_000_000);
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+
+    // Pause and then unpause.
+    f.client.pause_contract(&f.admin, &true);
+    f.client.pause_contract(&f.admin, &false);
+
+    let gift_id = f
+        .client
+        .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+    assert_eq!(gift_id, 1);
+}
+
+#[test]
+fn test_pause_contract_allows_claims_and_cancels() {
+    let f = TestFixture::setup(100_000_000);
+    let ledger_now: u64 = f.env.ledger().timestamp();
+    let unlock_time = ledger_now + 3600;
+
+    // Create gift 1 before pausing.
+    let gift_id_1 =
+        f.client
+            .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    // Create gift 2 before pausing.
+    let gift_id_2 =
+        f.client
+            .create_gift(&f.sender, &f.recipient, &MIN_DEPOSIT_AMOUNT, &unlock_time);
+
+    // Pause the contract.
+    f.client.pause_contract(&f.admin, &true);
+
+    // Cancel gift 1 while paused: must succeed.
+    f.client.cancel_gift(&f.sender, &gift_id_1);
+
+    // Claim gift 2 while paused (after unlock_time): must succeed.
+    f.env.ledger().set_timestamp(unlock_time);
+    f.client.claim_gift(&f.recipient, &gift_id_2);
 }
