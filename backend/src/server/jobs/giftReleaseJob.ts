@@ -1,7 +1,7 @@
 import cron from 'node-cron';
-import { db } from '../lib/db'; 
-import { gifts, wallets, transaction, notifications } from '../lib/db/schema'; 
-import { eq, and, lte, sql } from 'drizzle-orm';
+import { db } from "@/lib/db";
+import { gifts, wallets, transactions, notifications } from "@/lib/db/schema";
+import { eq, and, lte, sql } from "drizzle-orm";
 
 let isProcessing = false;
 
@@ -72,20 +72,22 @@ export const startGiftReleaseJob = () => {
               .where(eq(gifts.id, lockedGift.id));
 
             // 6. Write history record inside the corrected 'transaction' table structure
-            await tx.insert(transaction).values({
+            await tx.insert(transactions).values({
               userId: lockedGift.recipientId,
               amount: lockedGift.amount,
-              type: 'gift_receive',
-              status: 'success',
-              referenceId: lockedGift.id,
+              type: 'transfer',
+              status: 'completed',
+              currency: 'USDC',
+              reference: lockedGift.id,
             });
 
             // 7. Insert the in-app notification context
             await tx.insert(notifications).values({
               userId: lockedGift.recipientId,
-              title: '🎁 Gift Unlocked!',
+              type: 'gift_unlocked',
+              title: 'Gift Unlocked!',
               message: `Your time-locked cash gift of ${lockedGift.amount} USDC has been released to your wallet.`,
-              isRead: false,
+              read: false,
             });
 
             console.log(`[Cron Job] Successfully released gift ID: ${lockedGift.id}`);

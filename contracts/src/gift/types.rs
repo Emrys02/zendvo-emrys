@@ -29,4 +29,7 @@ pub enum DataKey {
 
     /// Persistent record for a specific gift ID.
     GiftRecord(u64),
+
+    /// Circuit breaker status flag (true if deposits/creations are paused).
+    IsPaused,
 }

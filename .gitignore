@@ -52,5 +52,5 @@ next-env.d.ts
 .opencode
 
 # Smart Contracts (Rust/Soroban)
-/contracts/target/
+contracts/target/
 /contracts/.soroban/

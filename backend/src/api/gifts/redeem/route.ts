@@ -40,7 +40,10 @@ export async function POST(
       // Example path: /api/gifts/123/redeem
       const redeemIdx = segments.indexOf("redeem");
       if (redeemIdx > 0) {
-        giftId = segments[redeemIdx - 1];
+        const possibleId = segments[redeemIdx - 1];
+        if (possibleId !== "gifts" && possibleId !== "api") {
+          giftId = possibleId;
+        }
       }
     }
 

@@ -37,10 +37,10 @@ jobs:
         run: pnpm --filter backend exec drizzle-kit check
 
       - name: Run Tests
-        run: pnpm run test -r --if-present
+        run: pnpm -r --if-present run test
 
       - name: Build Application
-        run: pnpm run build -r --if-present
+        run: pnpm -r --if-present run build
         env:
           NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}

@@ -7,6 +7,7 @@ use soroban_sdk::contracterror;
 pub enum ContractError {
     AlreadyInitialized = 5,
     NotInitialized = 6,
+    ProtocolPaused = 7,
     GiftNotFound = 8,
     TimeLockNotExpired = 9,
     AlreadyClaimed = 10,
@@ -35,4 +36,7 @@ pub enum ContractError {
 
     /// The user has no savings record found in storage.
     UserNotFound = 15,
+
+    /// The platform fee pool is empty; nothing to collect.
+    NoFeesToCollect = 16,
 }
