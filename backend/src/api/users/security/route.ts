@@ -1,45 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { users } from "@/lib/db/schema";
+import {
+  users,
+  emailVerifications,
+  passwordResets,
+  refreshTokens,
+  gifts,
+  wallets,
+  notifications,
+  bankAccounts,
+  transactions,
+} from "@/lib/db/schema";
+import { eq, and, or, inArray } from "drizzle-orm";
 import { getAuthPayload } from "@/lib/auth-session";
 import { createProblemDetails } from "@/lib/api-utils";
-import { generateSecret, generateURI } from "otplib";
-import QRCode from "qrcode";
+import { verifyOTP } from "@/server/services/otpService";
+import { logAuditEvent, AuditEventType } from "@/server/services/auditService";
+import { comparePassword } from "@/lib/auth";
 
-type ToggleBodyValid = { success: true; data: { enabled: boolean } };
-type ToggleBodyInvalid = {
-  success: false;
-  error: { flatten: () => { fieldErrors: Record<string, string[]> } };
-};
-type ToggleBodyResult = ToggleBodyValid | ToggleBodyInvalid;
-
-function validateToggleBody(body: unknown): ToggleBodyResult {
-  if (
-    !body ||
-    typeof body !== "object" ||
-    !("enabled" in body) ||
-    typeof (body as { enabled: unknown }).enabled !== "boolean"
-  ) {
-    return {
-      success: false,
-      error: {
-        flatten: () => ({
-          fieldErrors: {
-            enabled: ["Field 'enabled' is required and must be a boolean."],
-          },
-        }),
-      },
-    };
-  }
-
-  return {
-    success: true,
-    data: { enabled: (body as { enabled: boolean }).enabled },
-  };
-}
-
-export async function POST(request: NextRequest) {
+export async function DELETE(request: NextRequest) {
   try {
     const payload = await getAuthPayload(request);
     if (!payload) {
@@ -51,40 +30,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!request.headers.get("content-type")?.includes("application/json")) {
+    const body = await request.json().catch(() => ({}));
+    const { password, otp } = body as { password?: string; otp?: string };
+
+    if (!password || !otp) {
       return createProblemDetails(
         "about:blank",
         "Bad Request",
         400,
-        "Invalid Content-Type. Expected application/json",
+        "Password and OTP are required for account deletion",
       );
     }
-
-    let body: unknown;
-    try {
-      body = await request.json();
-    } catch {
-      return createProblemDetails(
-        "about:blank",
-        "Bad Request",
-        400,
-        "Request body must be valid JSON",
-      );
-    }
-
-    const validationResult = validateToggleBody(body);
-    if (!validationResult.success) {
-      return createProblemDetails(
-        "about:blank",
-        "Bad Request",
-        400,
-        "Invalid request body",
-        undefined,
-        { errors: validationResult.error.flatten().fieldErrors },
-      );
-    }
-
-    const { enabled } = validationResult.data;
 
     const user = await db.query.users.findFirst({
       where: eq(users.id, payload.userId),
@@ -99,60 +55,135 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (enabled) {
-      const secret = generateSecret();
-      const uri = generateURI({
-        secret,
-        issuer: "Zendvo",
-        label: user.email,
-      });
-
-      let qrCodeDataUrl: string;
-      try {
-        qrCodeDataUrl = await QRCode.toDataURL(uri);
-      } catch {
-        qrCodeDataUrl = "";
-      }
-
-      await db
-        .update(users)
-        .set({
-          totpSecret: secret,
-          is2faEnabled: true,
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, payload.userId));
-
-      return NextResponse.json(
-        {
-          success: true,
-          is2faEnabled: true,
-          totpSecret: secret,
-          otpauthUri: uri,
-          qrCodeDataUrl,
-        },
-        { status: 200 },
+    if (user.status === "suspended") {
+      return createProblemDetails(
+        "about:blank",
+        "Forbidden",
+        403,
+        "Account is suspended",
       );
     }
 
-    await db
-      .update(users)
-      .set({
-        totpSecret: null,
-        is2faEnabled: false,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, payload.userId));
+    const passwordValid = await comparePassword(password, user.passwordHash);
+    if (!passwordValid) {
+      return createProblemDetails(
+        "about:blank",
+        "Unauthorized",
+        401,
+        "Invalid password",
+      );
+    }
 
-    return NextResponse.json(
+    const otpResult = await verifyOTP(user.id, otp);
+    if (!otpResult.success) {
+      return createProblemDetails(
+        "about:blank",
+        "Forbidden",
+        403,
+        otpResult.message,
+      );
+    }
+
+    const sentGifts = await db.query.gifts.findMany({
+      where: eq(gifts.senderId, user.id),
+      columns: { id: true, status: true },
+    });
+
+    const receivedGifts = await db.query.gifts.findMany({
+      where: eq(gifts.recipientId, user.id),
+      columns: { id: true, status: true },
+    });
+
+    const unclaimedSentCount = sentGifts.filter(
+      (g) =>
+        g.status === "pending_otp" ||
+        g.status === "otp_verified" ||
+        g.status === "pending_review" ||
+        g.status === "confirmed",
+    ).length;
+
+    const unclaimedReceivedCount = receivedGifts.filter(
+      (g) =>
+        g.status === "pending_otp" ||
+        g.status === "otp_verified" ||
+        g.status === "pending_review" ||
+        g.status === "confirmed" ||
+        g.status === "sent",
+    ).length;
+
+    const allGiftIds = [
+      ...sentGifts.map((g) => g.id),
+      ...receivedGifts.map((g) => g.id),
+    ];
+
+    await db.transaction(async (tx) => {
+      if (allGiftIds.length > 0) {
+        await tx.delete(gifts).where(inArray(gifts.id, allGiftIds));
+      }
+
+      await tx
+        .delete(emailVerifications)
+        .where(eq(emailVerifications.userId, user.id));
+      await tx
+        .delete(passwordResets)
+        .where(eq(passwordResets.userId, user.id));
+      await tx
+        .delete(refreshTokens)
+        .where(eq(refreshTokens.userId, user.id));
+      await tx.delete(notifications).where(eq(notifications.userId, user.id));
+      await tx
+        .delete(bankAccounts)
+        .where(eq(bankAccounts.userId, user.id));
+      await tx
+        .delete(transactions)
+        .where(eq(transactions.userId, user.id));
+      await tx.delete(wallets).where(eq(wallets.userId, user.id));
+
+      await tx.delete(users).where(eq(users.id, user.id));
+    });
+
+    logAuditEvent({
+      timestamp: new Date(),
+      eventType: AuditEventType.ACCOUNT_UNLOCKED,
+      userId: user.id,
+      metadata: {
+        action: "ACCOUNT_DELETED",
+        deletedSentGifts: sentGifts.length,
+        deletedReceivedGifts: receivedGifts.length,
+        unclaimedSentGifts: unclaimedSentCount,
+        unclaimedReceivedGifts: unclaimedReceivedCount,
+      },
+      message: `Account deleted for user ${user.id}. Deleted ${sentGifts.length} sent gifts (${unclaimedSentCount} unclaimed), ${receivedGifts.length} received gifts (${unclaimedReceivedCount} unclaimed).`,
+    });
+
+    const response = NextResponse.json(
       {
         success: true,
-        is2faEnabled: false,
+        message: "Account deleted successfully",
+        deletedSentGifts: sentGifts.length,
+        deletedReceivedGifts: receivedGifts.length,
       },
       { status: 200 },
     );
-  } catch (error: unknown) {
-    console.error("[2FA_TOGGLE_ERROR]", error);
+
+    response.cookies.set("access_token", "", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 0,
+    });
+    response.cookies.set("refresh_token", "", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 0,
+    });
+
+    return response;
+  } catch (error) {
+    console.error("[DELETE_ACCOUNT_ERROR]", error);
     return createProblemDetails(
       "about:blank",
       "Internal Server Error",
