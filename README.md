@@ -144,28 +144,6 @@ MIT — see [LICENSE](./LICENSE).
 - **Issues**: [GitHub Issues](https://github.com/codeze-us/zendvo/issues)
 - **Website**: [www.zendvo.com](https://www.zendvo.com)
 
-## Maintainers
-
-<table align="center">
-  <tr>
-    <td align="center">
-      <img src="https://github.com/Emrys02.png" alt="Emrys02" width="150" />
-      <br /><br />
-      <strong>Emrys02</strong>
-      <br /><br />
-      <a href="https://github.com/Emrys02" target="_blank">GitHub</a>
-    </td>
-    <td align="center">
-      <img src="https://github.com/codeze-us.png" alt="codeZe-us" width="150" />
-      <br /><br />
-      <strong>codeZe-us</strong>
-      <br /><br />
-      <a href="https://github.com/codeze-us" target="_blank">GitHub</a>
-    </td>
-  </tr>
-</table>
-
-<p align="center">
   <i>Decentralizing the art of surprise on Stellar</i>
 </p>
 
