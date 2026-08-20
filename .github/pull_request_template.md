@@ -1,27 +1,22 @@
-## Summary
-<!-- Briefly describe the problem and your proposed solution. -->
+## Description
+<!-- Provide a clear and concise description of what was worked on. -->
 
-### Related Issue
-<!-- Link the related issue here using 'Closes #XXX' -->
+
+## How It Was Done
+<!-- Explain the technical implementation or approach used to solve the problem. -->
+
+
+## Issues Encountered (If Any)
+<!-- Detail any blockers, issues, or tricky parts you encountered while working on this PR. -->
+
+
+## Related Issue
+<!-- Use the "Closes #issue-number" format to automatically link and close the issue. -->
 Closes #
 
-## Type of Change
-- [ ] Bug fix (non-breaking change which fixes an issue)
-- [ ] New feature (non-breaking change which adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Documentation update
+## How It Was Tested
+<!-- Describe the tests that you ran to verify your changes, or how the reviewer can test them locally. -->
 
-## How Has This Been Tested?
-<!-- Please describe the tests that you ran to verify your changes. Provide instructions so we can reproduce. -->
 
-### Screenshots / Videos
-<!-- If this is a UI change, please attach screenshots or screen recordings. -->
-
-## Checklist
-- [ ] My code follows the [Zendvo Five Principles]
-- [ ] I have performed a self-review of my own code
-- [ ] I have commented my code, particularly in hard-to-understand areas
-- [ ] I have made corresponding changes to the documentation
-- [ ] My changes generate no new warnings
-- [ ] I have added tests that prove my fix is effective or that my feature works
-- [ ] New and existing unit tests pass locally with my changes
+## Screenshots / Video (If Applicable)
+<!-- Include screenshots or videos to visually demonstrate your changes if you modified the UI. -->

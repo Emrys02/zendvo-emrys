@@ -83,7 +83,7 @@ describe("Phone Number Uniqueness Constraint", () => {
 
       const mockInsert: any = {
         values: jest.fn().mockReturnThis(),
-        returning: jest.fn<any>().mockResolvedValue([mockCreatedUser]),
+        returning: jest.fn().mockResolvedValue([mockCreatedUser]),
       };
       (db.insert as any).mockReturnValue(mockInsert);
 
@@ -121,7 +121,7 @@ describe("Phone Number Uniqueness Constraint", () => {
 
       const mockInsert: any = {
         values: jest.fn().mockReturnThis(),
-        returning: jest.fn<any>().mockResolvedValue([mockCreatedUser]),
+        returning: jest.fn().mockResolvedValue([mockCreatedUser]),
       };
       (db.insert as any).mockReturnValue(mockInsert);
 
@@ -149,7 +149,7 @@ describe("Phone Number Uniqueness Constraint", () => {
 
       const mockInsert: any = {
         values: jest.fn().mockReturnThis(),
-        returning: jest.fn<any>().mockResolvedValue([
+        returning: jest.fn().mockResolvedValue([
           {
             id: "user-123",
             ...userInput,
@@ -185,7 +185,7 @@ describe("Phone Number Uniqueness Constraint", () => {
 
       const mockInsert: any = {
         values: jest.fn().mockReturnThis(),
-        returning: jest.fn<any>().mockRejectedValue(uniqueViolationError),
+        returning: jest.fn().mockRejectedValue(uniqueViolationError),
       };
       (db.insert as any).mockReturnValue(mockInsert);
 
