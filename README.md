@@ -7,7 +7,9 @@
   <img src="https://img.shields.io/badge/Stellar-Soroban-black?style=for-the-badge&logo=stellar" alt="Stellar" />
 </p>
 
-**Zendvo** is an expense, savings, and gifting platform that transforms digital money transfers into memorable experiences. It enables users to send cash gifts that remain completely hidden and locked until a predetermined date and time, save toward a specific item or goal, and track daily expenses accurately.
+**Zendvo** is a comprehensive expense, savings, and gifting platform available on web and mobile that transforms digital money transfers into memorable experiences. It leverages Stellar blockchain technology to enable users to send stablecoin (USDC) cash gifts that remain completely hidden and locked on-chain until a predetermined date and time. Additionally, it allows users to save toward specific items or goals, earn yield on those savings, and track their daily expenses accurately.
+
+The project is structured as a monorepo containing a Next.js web application, a Flutter mobile application, an Express.js backend, and Stellar Soroban smart contracts.
 
 ## Features
 
@@ -33,7 +35,11 @@
 - **Task Scheduling**: Integrated background cleanup cron jobs
 - **Integrations**: Stripe (Payments), Paystack (NGN bank payouts), Nodemailer (Emails)
 
-### Blockchain
+### Mobile (`mobile/`)
+- **Framework**: [Flutter](https://flutter.dev/)
+- **Language**: Dart
+
+### Blockchain (`contracts/`)
 - **Smart Contracts**: Stellar Soroban (Rust)
 - **SDKs**: Stellar SDK, Soroban SDK
 
@@ -58,7 +64,7 @@ Zendvo uses the Stellar ecosystem for its core financial primitives:
 
 ## Quick Start
 
-This project is set up as an **NPM Workspaces Monorepo**. Dependencies are hoisted and both servers can be run concurrently.
+This project is set up as a **PNPM Workspaces Monorepo**. Dependencies are hoisted and both servers can be run concurrently.
 
 1. **Clone and prepare**:
    ```bash
@@ -68,19 +74,19 @@ This project is set up as an **NPM Workspaces Monorepo**. Dependencies are hoist
    cp backend/.env.example backend/.env
    ```
 
-2. **Install dependencies** (installs and hoists packages for both workspaces):
+2. **Install dependencies** (installs and hoists packages for all workspaces):
    ```bash
-   npm install
+   pnpm install
    ```
 
 3. **Database setup** (runs Drizzle Kit from the backend workspace):
    ```bash
-   npm run db:push
+   pnpm run db:push
    ```
 
 4. **Run in development** (starts Next.js on port `3000` and Express on port `5000` concurrently):
    ```bash
-   npm run dev
+   pnpm run dev
    ```
 
 ---
@@ -97,6 +103,12 @@ web/                      # Frontend Workspace (Next.js client)
 │   ├── services/         # api.ts fetch client configuration
 │   └── lib/              # Client-only utility functions
 │
+mobile/                   # Mobile Workspace (Flutter app)
+├── lib/
+│   ├── core/             # Core utilities, theme, routing
+│   ├── features/         # Feature-based modular architecture
+│   └── main.dart         # Flutter app entry point
+│
 backend/                  # Backend Workspace (Express, DB, Jobs)
 ├── src/
 │   ├── api/              # API endpoints (migrated Next route handlers)
@@ -108,6 +120,11 @@ backend/                  # Backend Workspace (Express, DB, Jobs)
 ├── migrations/           # Raw SQL database migrations
 ├── drizzle/              # Drizzle Kit schema metadata
 └── __tests__/            # Centralized test suites (Jest/ts-jest)
+│
+contracts/                # Smart Contracts Workspace (Soroban)
+├── src/                  # Rust smart contract source code
+├── target/               # Compiled WASM contracts
+└── Cargo.toml            # Rust dependencies and project metadata
 ```
 
 ## Documentation
