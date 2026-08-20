@@ -16,7 +16,7 @@ The project is structured as a monorepo containing a Next.js web application, a 
 - **Time-Locked Gifting**: Funds are locked in Soroban smart contracts and only released after a specified date and time, enforced entirely on-chain.
 - **Stablecoin Preservation**: Uses USDC on Stellar to keep gift value stable from creation to reveal, eliminating volatility risk.
 - **Yield on Savings**: Idle savings earn yield through Stellar's AMM liquidity pools or Blend Protocol lending, so balances grow while waiting.
-- **Bank Integration**: Seamless on/off-ramps connecting stablecoin liquidity to local bank accounts, with Paystack powering Nigerian NGN payouts.
+- **Bank Integration**: Seamless on/off-ramps connecting stablecoin liquidity to local bank accounts, with Paystack powering Nigerian bank payouts.
 - **Surprise Experience**: UI/UX built around anticipation, revealing gifts only at the exact unlock moment.
 - **Low-Cost Global Transfers**: Stellar's 3–5 second finality and near-zero fees make cross-border gifting practical at any amount.
 - **Expense Tracking**: Accurate daily expense calculation with categorization and spending summaries.
@@ -33,7 +33,7 @@ The project is structured as a monorepo containing a Next.js web application, a 
 - **Database**: PostgreSQL with [Drizzle ORM](https://orm.drizzle.team/)
 - **Language**: TypeScript 5
 - **Task Scheduling**: Integrated background cleanup cron jobs
-- **Integrations**: Stripe (Payments), Paystack (NGN bank payouts), Nodemailer (Emails)
+- **Integrations**: Stripe (Payments), Paystack (bank payouts), Nodemailer (Emails)
 
 ### Mobile (`mobile/`)
 - **Framework**: [Flutter](https://flutter.dev/)
