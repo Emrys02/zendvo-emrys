@@ -3,18 +3,8 @@
  * Tests the narrow and wide window account locking mechanisms
  */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  jest,
-  afterEach,
-} from "@jest/globals";
-import {
-  verifyOTP,
-  storeOTP,
-} from "@/server/services/otpService";
+import { verifyOTP, storeOTP } from "@/server/services/otpService";
+
 import { db } from "@/lib/db";
 import { users, emailVerifications } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";

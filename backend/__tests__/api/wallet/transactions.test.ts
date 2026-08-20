@@ -142,7 +142,7 @@ describe("GET /api/wallet/transactions", () => {
 
     (db.select as jest.Mock).mockImplementation(selectMock);
 
-    const response = await GET(makeRequest({ page: "1", limit: "10" }));
+    const response = await GET(makeRequest({ page: 1, limit: 10 }));
     const json = await response.json();
 
     expect(response.status).toBe(200);
@@ -277,7 +277,7 @@ describe("GET /api/wallet/transactions", () => {
       jest.fn().mockImplementationOnce(() => buildChain(gifts)).mockImplementationOnce(() => buildChain(txs)),
     );
 
-    const response = await GET(makeRequest({ page: "2", limit: "2" }));
+    const response = await GET(makeRequest({ page: 2, limit: 2 }));
     const json = await response.json();
 
     expect(response.status).toBe(200);

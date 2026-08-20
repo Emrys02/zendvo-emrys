@@ -1,4 +1,4 @@
-import { describe, it, expect, jest } from "@jest/globals";
+// Jest globals are available implicitly
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import {
