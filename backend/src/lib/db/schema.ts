@@ -45,12 +45,14 @@ export const users = pgTable(
     phoneLast4: text("phone_last_4"),
     is2faEnabled: boolean("is_2fa_enabled").default(false).notNull(),
     totpSecret: text("totp_secret"),
+    stellarAddress: text("stellar_address"),
   },
   (table) => {
     return [
       unique("users_phone_number_unique").on(table.phoneNumber),
       unique("users_email_unique").on(table.email),
       unique("users_username_unique").on(table.username),
+      unique("users_stellar_address_unique").on(table.stellarAddress),
       index("users_phone_number_idx").on(table.phoneNumber),
       index("users_status_idx").on(table.status),
       index("users_created_at_idx").on(table.createdAt),
