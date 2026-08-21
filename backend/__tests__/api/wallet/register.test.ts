@@ -226,6 +226,22 @@ describe("POST /api/wallet/register", () => {
     expect(body.title).toBe("Bad Request");
   });
 
+  it("returns 400 when the request body is JSON null", async () => {
+    mockGetAuthPayload.mockResolvedValue({ userId: "user-null" });
+
+    const req = new NextRequest("http://localhost/api/wallet/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "null",
+    });
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.title).toBe("Bad Request");
+    expect(body.detail).toContain("stellarAddress is required");
+  });
+
   // ──────────────────────────────────────────────
   // Address update (replacing an existing address)
   // ──────────────────────────────────────────────
@@ -246,5 +262,61 @@ describe("POST /api/wallet/register", () => {
     expect(res.status).toBe(201);
     expect(body.success).toBe(true);
     expect(body.stellarAddress).toBe(VALID_STELLAR_ADDRESS);
+  });
+
+  // ──────────────────────────────────────────────
+  // Concurrent registration (PostgreSQL 23505)
+  // ──────────────────────────────────────────────
+  it("returns 200 when a concurrent request by the same user wins the race (23505 + self owns address)", async () => {
+    mockGetAuthPayload.mockResolvedValue({ userId: "user-8" });
+
+    // Step 4: fetch user — no address yet
+    // Step 6: uniqueness check — address not yet taken
+    __mocks.selectReturning
+      .mockResolvedValueOnce([{ id: "user-8", stellarAddress: null }])
+      .mockResolvedValueOnce([]);
+
+    // Step 7: update throws a PG unique constraint violation
+    const pgError = Object.assign(new Error("unique constraint"), { code: "23505" });
+    __mocks.updateSet.mockRejectedValueOnce(pgError);
+
+    // Re-read after 23505: the user now owns the address (their own concurrent write succeeded)
+    __mocks.selectReturning.mockResolvedValueOnce([
+      { id: "user-8", stellarAddress: VALID_STELLAR_ADDRESS },
+    ]);
+
+    const res = await POST(makeRequest({ stellarAddress: VALID_STELLAR_ADDRESS }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.stellarAddress).toBe(VALID_STELLAR_ADDRESS);
+    expect(body.message).toBe("Stellar address already registered");
+  });
+
+  it("returns 409 when a different user wins the concurrent race (23505 + other user owns address)", async () => {
+    mockGetAuthPayload.mockResolvedValue({ userId: "user-9" });
+
+    // Step 4: fetch user — no address yet
+    // Step 6: uniqueness check — address not yet taken at that instant
+    __mocks.selectReturning
+      .mockResolvedValueOnce([{ id: "user-9", stellarAddress: null }])
+      .mockResolvedValueOnce([]);
+
+    // Step 7: update throws a PG unique constraint violation
+    const pgError = Object.assign(new Error("unique constraint"), { code: "23505" });
+    __mocks.updateSet.mockRejectedValueOnce(pgError);
+
+    // Re-read after 23505: this user still has no address (another user claimed it)
+    __mocks.selectReturning.mockResolvedValueOnce([
+      { id: "user-9", stellarAddress: null },
+    ]);
+
+    const res = await POST(makeRequest({ stellarAddress: VALID_STELLAR_ADDRESS }));
+    const body = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(body.title).toBe("Conflict");
+    expect(body.detail).toContain("already registered to another account");
   });
 });

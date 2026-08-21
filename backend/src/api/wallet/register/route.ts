@@ -6,6 +6,9 @@ import { users } from "@/lib/db/schema";
 import { getAuthPayload } from "@/lib/auth-session";
 import { createProblemDetails } from "@/lib/api-utils";
 
+/** PostgreSQL unique-constraint violation error code. */
+const PG_UNIQUE_VIOLATION = "23505";
+
 export async function POST(request: NextRequest) {
   try {
     // 1. Require authentication
@@ -21,10 +24,13 @@ export async function POST(request: NextRequest) {
 
     const { userId } = payload;
 
-    // 2. Parse and validate request body
+    // 2. Parse request body — a non-object or null body is treated as empty
     let body: Record<string, unknown>;
     try {
-      body = await request.json();
+      const parsed: unknown = await request.json();
+      body = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {};
     } catch {
       body = {};
     }
@@ -94,11 +100,51 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 7. Persist the address
-    await db
-      .update(users)
-      .set({ stellarAddress: address, updatedAt: new Date() })
-      .where(eq(users.id, userId));
+    // 7. Persist the address — handle a concurrent unique-constraint violation
+    try {
+      await db
+        .update(users)
+        .set({ stellarAddress: address, updatedAt: new Date() })
+        .where(eq(users.id, userId));
+    } catch (updateError: unknown) {
+      // Another request won the race and claimed this address between our
+      // uniqueness check (step 6) and this update. Re-read to distinguish
+      // between our own user winning the race (idempotent 200) and a
+      // different user claiming the address (conflict 409).
+      const code =
+        updateError !== null &&
+        typeof updateError === "object" &&
+        "code" in updateError
+          ? (updateError as { code: string }).code
+          : null;
+
+      if (code === PG_UNIQUE_VIOLATION) {
+        const [refreshed] = await db
+          .select({ id: users.id, stellarAddress: users.stellarAddress })
+          .from(users)
+          .where(eq(users.id, userId));
+
+        if (refreshed?.stellarAddress === address) {
+          return NextResponse.json(
+            {
+              success: true,
+              message: "Stellar address already registered",
+              stellarAddress: address,
+            },
+            { status: 200 },
+          );
+        }
+
+        return createProblemDetails(
+          "about:blank",
+          "Conflict",
+          409,
+          "Stellar address is already registered to another account",
+        );
+      }
+
+      throw updateError;
+    }
 
     return NextResponse.json(
       {

@@ -146,10 +146,4 @@ apiRouter.get("/api/users/resolve", makeExpressHandler(resolveRecipientGet));
 apiRouter.delete("/api/users/account", makeExpressHandler(deleteAccountDelete));
 
 // 5. Wallet routes
-apiRouter.get("/api/wallet/balance", makeExpressHandler(walletBalanceGet));
-apiRouter.get("/api/wallet/transactions", makeExpressHandler(walletTransactionsGet));
-apiRouter.get("/api/wallet/banks", makeExpressHandler(bankAccountsGet));
-apiRouter.post("/api/wallet/banks", makeExpressHandler(bankAccountsPost));
-apiRouter.put("/api/wallet/banks/:id", makeExpressHandler(bankAccountsPut));
-apiRouter.delete("/api/wallet/banks/:id", makeExpressHandler(unlinkBankAccountDelete));
 apiRouter.post("/api/wallet/register", makeExpressHandler(walletRegisterPost));
