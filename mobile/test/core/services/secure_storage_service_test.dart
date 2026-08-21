@@ -80,11 +80,16 @@ void main() {
     });
 
     test('saveSecretSeed stores seed using namespaced key', () async {
+      expect(
+        SecureStorageService.defaultSeedKey,
+        equals('savings_wallet_seed_v1'),
+      );
+
       const testSeed = 'SABCD123456789XYZSECRETSEED';
       await service.saveSecretSeed(testSeed);
 
       final stored = await fakeStorage.read(
-        key: SecureStorageService.defaultSeedKey,
+        key: 'savings_wallet_seed_v1',
       );
       expect(stored, equals(testSeed));
     });

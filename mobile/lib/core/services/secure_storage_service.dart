@@ -33,7 +33,7 @@ class GenericSecureStorageException extends SecureStorageException {
 }
 
 /// Dedicated service for writing and reading the master secret seed
-/// using hardware-backed keystore/keychain storage.
+/// using secure keystore/keychain storage.
 class SecureStorageService {
   /// Default namespaced key for the secret seed to prevent collision with other app data.
   static const String defaultSeedKey = 'savings_wallet_seed_v1';
@@ -62,7 +62,7 @@ class SecureStorageService {
             ),
         _seedKey = seedKey;
 
-  /// Securely encrypts and persists the [seed] in hardware-backed storage.
+  /// Securely encrypts and persists the [seed] in platform secure storage.
   ///
   /// Throws [ArgumentError] if [seed] is empty.
   /// Throws [SecureStorageException] or one of its subclasses on storage failures.
@@ -78,7 +78,7 @@ class SecureStorageService {
     }
   }
 
-  /// Retrieves the secret seed into memory from hardware-backed storage.
+  /// Retrieves the secret seed into memory from platform secure storage.
   ///
   /// Returns `null` if no seed has been saved yet.
   /// Throws [SecureStorageCorruptedException] if the retrieved seed is empty or invalid.
