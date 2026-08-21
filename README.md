@@ -33,7 +33,7 @@ The project is structured as a monorepo containing a Next.js web application, a 
 - **Database**: PostgreSQL with [Drizzle ORM](https://orm.drizzle.team/)
 - **Language**: TypeScript 5
 - **Task Scheduling**: Integrated background cleanup cron jobs
-- **Integrations**: Stripe (Payments), Paystack (bank payouts), Nodemailer (Emails)
+- **Integrations**: Stripe (Payments), Paystack (bank payouts), Nodemailer (Emails), Bridge , Circle, Kora pay (offramp), Defindex
 
 ### Mobile (`mobile/`)
 - **Framework**: [Flutter](https://flutter.dev/)
