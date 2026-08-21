@@ -102,10 +102,21 @@ export async function POST(request: NextRequest) {
 
     // 7. Persist the address — handle a concurrent unique-constraint violation
     try {
-      await db
+      const updated = await db
         .update(users)
         .set({ stellarAddress: address, updatedAt: new Date() })
-        .where(eq(users.id, userId));
+        .where(eq(users.id, userId))
+        .returning({ id: users.id });
+
+      // The user was deleted between our lookup (step 4) and this update.
+      if (updated.length === 0) {
+        return createProblemDetails(
+          "about:blank",
+          "Not Found",
+          404,
+          "User not found",
+        );
+      }
     } catch (updateError: unknown) {
       // Another request won the race and claimed this address between our
       // uniqueness check (step 6) and this update. Re-read to distinguish

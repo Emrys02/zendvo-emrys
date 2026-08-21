@@ -21,7 +21,7 @@ jest.mock("@stellar/stellar-sdk", () => ({
 
 jest.mock("../../../src/lib/db", () => {
   const selectReturning = jest.fn();
-  const updateSet = jest.fn();
+  const updateReturning = jest.fn();
 
   return {
     db: {
@@ -32,13 +32,15 @@ jest.mock("../../../src/lib/db", () => {
       })),
       update: jest.fn(() => ({
         set: jest.fn(() => ({
-          where: updateSet,
+          where: jest.fn(() => ({
+            returning: updateReturning,
+          })),
         })),
       })),
     },
     __mocks: {
       selectReturning,
-      updateSet,
+      updateReturning,
     },
   };
 });
@@ -130,7 +132,8 @@ describe("POST /api/wallet/register", () => {
       .mockResolvedValueOnce([{ id: "user-1", stellarAddress: null }])
       .mockResolvedValueOnce([]);
 
-    __mocks.updateSet.mockResolvedValueOnce(undefined);
+    // Update returns the affected row
+    __mocks.updateReturning.mockResolvedValueOnce([{ id: "user-1" }]);
 
     const res = await POST(makeRequest({ stellarAddress: VALID_STELLAR_ADDRESS }));
     const body = await res.json();
@@ -254,7 +257,8 @@ describe("POST /api/wallet/register", () => {
       // New address is not taken
       .mockResolvedValueOnce([]);
 
-    __mocks.updateSet.mockResolvedValueOnce(undefined);
+    // Update returns the affected row
+    __mocks.updateReturning.mockResolvedValueOnce([{ id: "user-7" }]);
 
     const res = await POST(makeRequest({ stellarAddress: VALID_STELLAR_ADDRESS }));
     const body = await res.json();
@@ -262,6 +266,28 @@ describe("POST /api/wallet/register", () => {
     expect(res.status).toBe(201);
     expect(body.success).toBe(true);
     expect(body.stellarAddress).toBe(VALID_STELLAR_ADDRESS);
+  });
+
+  // ──────────────────────────────────────────────
+  // User deleted between lookup and update
+  // ──────────────────────────────────────────────
+  it("returns 404 when the user is deleted between the lookup and the update", async () => {
+    mockGetAuthPayload.mockResolvedValue({ userId: "user-deleted" });
+
+    // Step 4: user exists at lookup time
+    // Step 6: address is not yet taken
+    __mocks.selectReturning
+      .mockResolvedValueOnce([{ id: "user-deleted", stellarAddress: null }])
+      .mockResolvedValueOnce([]);
+
+    // Step 7: update returns no rows — user was deleted in the window
+    __mocks.updateReturning.mockResolvedValueOnce([]);
+
+    const res = await POST(makeRequest({ stellarAddress: VALID_STELLAR_ADDRESS }));
+    const body = await res.json();
+
+    expect(res.status).toBe(404);
+    expect(body.title).toBe("Not Found");
   });
 
   // ──────────────────────────────────────────────
@@ -278,7 +304,7 @@ describe("POST /api/wallet/register", () => {
 
     // Step 7: update throws a PG unique constraint violation
     const pgError = Object.assign(new Error("unique constraint"), { code: "23505" });
-    __mocks.updateSet.mockRejectedValueOnce(pgError);
+    __mocks.updateReturning.mockRejectedValueOnce(pgError);
 
     // Re-read after 23505: the user now owns the address (their own concurrent write succeeded)
     __mocks.selectReturning.mockResolvedValueOnce([
@@ -305,7 +331,7 @@ describe("POST /api/wallet/register", () => {
 
     // Step 7: update throws a PG unique constraint violation
     const pgError = Object.assign(new Error("unique constraint"), { code: "23505" });
-    __mocks.updateSet.mockRejectedValueOnce(pgError);
+    __mocks.updateReturning.mockRejectedValueOnce(pgError);
 
     // Re-read after 23505: this user still has no address (another user claimed it)
     __mocks.selectReturning.mockResolvedValueOnce([
