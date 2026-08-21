@@ -1,17 +1,11 @@
 import '../../../core/errors/exceptions.dart';
 import '../../../core/network/api_client.dart';
-import '../../../core/services/transaction_signing_service.dart';
 import '../models/savings_data_model.dart';
 
 class SavingsRepository {
-  SavingsRepository({
-    required ApiClient apiClient,
-    required TransactionSigningService signingService,
-  })  : _apiClient = apiClient,
-       _signingService = signingService;
+  SavingsRepository({required ApiClient apiClient}) : _apiClient = apiClient;
 
   final ApiClient _apiClient;
-  final TransactionSigningService _signingService;
 
   Future<String> requestDepositXdr(String amount, String accountId) async {
     final response = await _apiClient.postWithRetry(
@@ -28,9 +22,6 @@ class SavingsRepository {
 
     return unsignedXdr;
   }
-
-  Future<String> signDepositXdr(String unsignedXdr, String secretSeed) =>
-      _signingService.signXdrLocally(unsignedXdr, secretSeed);
 
   Future<SavingsDataModel> fetchSavingsDashboardData(String accountId) async {
     // TODO: Call backend balance/apy endpoint

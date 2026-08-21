@@ -34,6 +34,10 @@ class ApiClient {
 
   Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> body) async {
     final token = await tokenProvider?.call();
+    if (token == null || token.isEmpty) {
+      throw const AuthenticationException();
+    }
+
     final uri = Uri.parse(baseUrl + path);
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 15);
@@ -42,19 +46,25 @@ class ApiClient {
     try {
       request = await client.postUrl(uri);
       request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-      if (token != null && token.isNotEmpty) {
-        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      }
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
       request.write(jsonEncode(body));
 
-      final response = await request.close();
-      final payload = await response.transform(utf8.decoder).join();
+      final response =
+          await request.close().timeout(const Duration(seconds: 15));
+      final payload = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 15));
       final status = response.statusCode;
 
       if (status >= 200 && status < 300) {
         if (payload.isEmpty) return <String, dynamic>{};
-        final decoded = jsonDecode(payload);
-        if (decoded is Map<String, dynamic>) return decoded;
+        try {
+          final decoded = jsonDecode(payload);
+          if (decoded is Map<String, dynamic>) return decoded;
+        } on FormatException {
+          throw const ServerException('Malformed JSON in deposit response.');
+        }
         throw const ServerException('Unexpected deposit response format.');
       }
 
@@ -74,7 +84,10 @@ class ApiClient {
     String? code;
     try {
       final data = jsonDecode(payload);
-      if (data is Map<String, dynamic>) code = data['code'] as String?;
+      if (data is Map<String, dynamic>) {
+        final rawCode = data['code'];
+        code = rawCode is String ? rawCode : null;
+      }
     } on FormatException {
       code = null;
     }

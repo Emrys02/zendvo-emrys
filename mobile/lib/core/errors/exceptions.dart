@@ -13,6 +13,12 @@ class NetworkException extends SavingsException {
   ]);
 }
 
+class AuthenticationException extends SavingsException {
+  const AuthenticationException([
+    super.message = 'Authentication token is required for deposit requests.',
+  ]);
+}
+
 class ServerException extends SavingsException {
   const ServerException([
     super.message = 'The savings backend returned an unexpected error.',
