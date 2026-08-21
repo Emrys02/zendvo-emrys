@@ -46,7 +46,7 @@ class SecureStorageService {
   );
 
   static const IOSOptions _defaultIOSOptions = IOSOptions(
-    accessibility: KeychainAccessibility.first_unlock,
+    accessibility: KeychainAccessibility.unlocked_this_device,
   );
 
   /// Constructs a [SecureStorageService].
@@ -147,7 +147,9 @@ class SecureStorageService {
         errorString.contains('format') ||
         errorString.contains('decode') ||
         errorString.contains('cipher') ||
-        errorString.contains('invalid key')) {
+        errorString.contains('invalid key') ||
+        errorString.contains('invalidkeyexception') ||
+        errorString.contains('failed to unwrap')) {
       return SecureStorageCorruptedException(
         'Secure storage data is corrupted or failed to decrypt while $operation.',
         error,

@@ -163,6 +163,19 @@ void main() {
       );
     });
 
+    test('maps Android Keystore key-loss error to SecureStorageCorruptedException',
+        () async {
+      fakeStorage.errorToThrow = PlatformException(
+        code: 'SecretStorageException',
+        message: 'InvalidKeyException: Failed to unwrap key',
+      );
+
+      expect(
+        () => service.getSecretSeed(),
+        throwsA(isA<SecureStorageCorruptedException>()),
+      );
+    });
+
     test('maps hardware unavailable error to SecureStorageUnavailableException',
         () async {
       fakeStorage.errorToThrow = PlatformException(
