@@ -1,0 +1,129 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/core/network/api_client.dart';
+import 'package:mobile/core/network/api_exceptions.dart';
+import 'package:mobile/features/savings/data/savings_repository.dart';
+
+/// Starts a local HTTP server that responds according to [handler].
+/// Returns the server and a base URL pointing at it.
+Future<(HttpServer, Uri)> startServer(Future<void> Function(HttpRequest) handler) async {
+  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  final baseUri = Uri.parse('http://127.0.0.1:${server.port}');
+  server.listen((request) async {
+    try {
+      await handler(request);
+    } catch (_) {
+      // Ignore handler errors; close the response if still open.
+    }
+  });
+  return (server, baseUri);
+}
+
+Future<void> jsonResponse(HttpRequest request, int statusCode, Map<String, dynamic> body) async {
+  await request.drain<void>();
+  request.response
+    ..statusCode = statusCode
+    ..headers.contentType = ContentType.json
+    ..write(jsonEncode(body));
+  await request.response.close();
+}
+
+void main() {
+  group('SavingsRepository.submitSignedXdr', () {
+    test('submits the signed XDR and reports succeeded state with the hash', () async {
+      final (server, baseUri) = await startServer((request) async {
+        expect(request.uri.path, '/api/transactions/submit');
+        final body = await utf8.decoder.bind(request).join();
+        expect(jsonDecode(body), {'xdr': 'signed_xdr_envelope'});
+        request.response
+          ..statusCode = 200
+          ..headers.contentType = ContentType.json
+          ..write(jsonEncode({'hash': 'tx-hash-123'}));
+        await request.response.close();
+      });
+      addTearDown(() => server.close(force: true));
+
+      final repository = SavingsRepository(
+        apiClient: ApiClient(baseDelay: const Duration(milliseconds: 1)),
+        baseUrl: baseUri.toString(),
+      );
+
+      expect(repository.submissionStatus.value, SavingsSubmissionStatus.idle);
+
+      final hash = await repository.submitSignedXdr('signed_xdr_envelope');
+
+      expect(hash, 'tx-hash-123');
+      expect(repository.submissionStatus.value, SavingsSubmissionStatus.succeeded);
+    });
+
+    test('transient failures are retried automatically', () async {
+      var attempts = 0;
+      final (server, baseUri) = await startServer((request) async {
+        attempts++;
+        if (attempts < 3) {
+          return jsonResponse(request, 503, {'message': 'node overloaded'});
+        }
+        return jsonResponse(request, 200, {'hash': 'tx-hash-456'});
+      });
+      addTearDown(() => server.close(force: true));
+
+      final repository = SavingsRepository(
+        apiClient: ApiClient(baseDelay: const Duration(milliseconds: 1)),
+        baseUrl: baseUri.toString(),
+      );
+
+      final hash = await repository.submitSignedXdr('signed_xdr_envelope');
+
+      expect(attempts, 3);
+      expect(hash, 'tx-hash-456');
+      expect(repository.submissionStatus.value, SavingsSubmissionStatus.succeeded);
+    });
+
+    test('permanent failure maps to TransactionFailedException and state reverts cleanly', () async {
+      final (server, baseUri) = await startServer((request) async {
+        return jsonResponse(request, 400, {'message': 'bad signature'});
+      });
+      addTearDown(() => server.close(force: true));
+
+      final repository = SavingsRepository(
+        apiClient: ApiClient(baseDelay: const Duration(milliseconds: 1)),
+        baseUrl: baseUri.toString(),
+      );
+
+      await expectLater(
+        repository.submitSignedXdr('signed_xdr_envelope'),
+        throwsA(isA<TransactionFailedException>()),
+      );
+
+      // State must not stay stuck in "submitting"/"pending".
+      expect(repository.submissionStatus.value, SavingsSubmissionStatus.failed);
+
+      // The user can attempt the action again after resetting the state.
+      repository.resetSubmissionState();
+      expect(repository.submissionStatus.value, SavingsSubmissionStatus.idle);
+    });
+
+    test('congestion after retries maps to NetworkCongestedException and reverts state', () async {
+      final (server, baseUri) = await startServer((request) async {
+        return jsonResponse(request, 503, {'message': 'node overloaded'});
+      });
+      addTearDown(() => server.close(force: true));
+
+      final repository = SavingsRepository(
+        apiClient: ApiClient(maxRetries: 3, baseDelay: const Duration(milliseconds: 1)),
+        baseUrl: baseUri.toString(),
+      );
+
+      await expectLater(
+        repository.submitSignedXdr('signed_xdr_envelope'),
+        throwsA(isA<NetworkCongestedException>()),
+      );
+      expect(repository.submissionStatus.value, SavingsSubmissionStatus.failed);
+
+      repository.resetSubmissionState();
+      expect(repository.submissionStatus.value, SavingsSubmissionStatus.idle);
+    });
+  });
+}
