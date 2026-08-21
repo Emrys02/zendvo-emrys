@@ -12,22 +12,25 @@ class _FakeSecureStorage extends SecureStorageService {
   Future<String?> getSecretSeed() async => _seed;
 }
 
+String _buildUnsignedPaymentXdr(KeyPair keyPair) {
+  final account = Account(keyPair.accountId, BigInt.one);
+  final unsigned = TransactionBuilder(account)
+      .addOperation(
+        PaymentOperationBuilder(
+          keyPair.accountId,
+          Asset.NATIVE,
+          '1',
+        ).build(),
+      )
+      .build();
+  return unsigned.toEnvelopeXdrBase64();
+}
+
 void main() {
-  test('signs unsigned XDR with seed from secure storage', () async {
+  test('signs unsigned XDR for TESTNET with seed from secure storage',
+      () async {
     final keyPair = KeyPair.random();
-    final account = Account(keyPair.accountId, BigInt.one);
-
-    final unsigned = TransactionBuilder(account)
-        .addOperation(
-          PaymentOperationBuilder(
-            keyPair.accountId,
-            Asset.NATIVE,
-            '1',
-          ).build(),
-        )
-        .build();
-
-    final unsignedXdr = unsigned.toEnvelopeXdrBase64();
+    final unsignedXdr = _buildUnsignedPaymentXdr(keyPair);
 
     final service = TransactionSigningService(
       secureStorage: _FakeSecureStorage(keyPair.secretSeed),
@@ -43,9 +46,42 @@ void main() {
     expect(parsed.signatures, isNotEmpty);
   });
 
+  test('signs unsigned XDR for PUBLIC network', () async {
+    final keyPair = KeyPair.random();
+    final unsignedXdr = _buildUnsignedPaymentXdr(keyPair);
+
+    final service = TransactionSigningService(
+      secureStorage: _FakeSecureStorage(keyPair.secretSeed),
+      network: Network.PUBLIC,
+    );
+
+    final signedXdr = await service.signXdrLocally(unsignedXdr);
+    final parsed = AbstractTransaction.fromEnvelopeXdrString(signedXdr);
+    expect(parsed.signatures, isNotEmpty);
+  });
+
+  test('TESTNET and PUBLIC signatures differ for the same XDR', () async {
+    final keyPair = KeyPair.random();
+    final unsignedXdr = _buildUnsignedPaymentXdr(keyPair);
+    final storage = _FakeSecureStorage(keyPair.secretSeed);
+
+    final testnetSigned = await TransactionSigningService(
+      secureStorage: storage,
+      network: Network.TESTNET,
+    ).signXdrLocally(unsignedXdr);
+
+    final publicSigned = await TransactionSigningService(
+      secureStorage: storage,
+      network: Network.PUBLIC,
+    ).signXdrLocally(unsignedXdr);
+
+    expect(testnetSigned, isNot(equals(publicSigned)));
+  });
+
   test('throws when secret seed is missing', () async {
     final service = TransactionSigningService(
       secureStorage: _FakeSecureStorage(null),
+      network: Network.TESTNET,
     );
 
     expect(
@@ -58,6 +94,7 @@ void main() {
     final keyPair = KeyPair.random();
     final service = TransactionSigningService(
       secureStorage: _FakeSecureStorage(keyPair.secretSeed),
+      network: Network.TESTNET,
     );
 
     expect(

@@ -6,11 +6,13 @@ import 'secure_storage_service.dart';
 /// secret seed from secure storage. Keeps the architecture non-custodial:
 /// the private key never leaves the device.
 class TransactionSigningService {
+  /// Both [secureStorage] and [network] are required so callers cannot
+  /// accidentally sign with a stub storage or the wrong network passphrase.
   TransactionSigningService({
-    SecureStorageService? secureStorage,
-    Network? network,
-  })  : _secureStorage = secureStorage ?? SecureStorageService(),
-        _network = network ?? Network.TESTNET;
+    required SecureStorageService secureStorage,
+    required Network network,
+  })  : _secureStorage = secureStorage,
+        _network = network;
 
   final SecureStorageService _secureStorage;
   final Network _network;
