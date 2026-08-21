@@ -14,8 +14,13 @@ Future<(HttpServer, Uri)> startServer(Future<void> Function(HttpRequest) handler
   server.listen((request) async {
     try {
       await handler(request);
-    } catch (_) {
-      // Ignore handler errors; close the response if still open.
+    } catch (e, st) {
+      // Close any still-open response, then propagate the error so the
+      // test fails immediately rather than hanging as a retry timeout.
+      try {
+        await request.response.close();
+      } catch (_) {}
+      Error.throwWithStackTrace(e, st);
     }
   });
   return (server, baseUri);
