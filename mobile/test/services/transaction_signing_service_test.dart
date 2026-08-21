@@ -12,6 +12,18 @@ class _FakeSecureStorage extends SecureStorageService {
   Future<String?> getSecretSeed() async => _seed;
 }
 
+class _CountingSecureStorage extends SecureStorageService {
+  _CountingSecureStorage({required this.onRead});
+
+  final void Function() onRead;
+
+  @override
+  Future<String?> getSecretSeed() async {
+    onRead();
+    return 'should-not-be-read';
+  }
+}
+
 String _buildUnsignedPaymentXdr(KeyPair keyPair) {
   final account = Account(keyPair.accountId, BigInt.one);
   final unsigned = TransactionBuilder(account)
@@ -79,15 +91,34 @@ void main() {
   });
 
   test('throws when secret seed is missing', () async {
+    final keyPair = KeyPair.random();
+    final unsignedXdr = _buildUnsignedPaymentXdr(keyPair);
     final service = TransactionSigningService(
       secureStorage: _FakeSecureStorage(null),
       network: Network.TESTNET,
     );
 
     expect(
-      () => service.signXdrLocally('AAAA...'),
+      () => service.signXdrLocally(unsignedXdr),
       throwsA(isA<StateError>()),
     );
+  });
+
+  test('does not read secret seed when XDR is malformed', () async {
+    var seedReads = 0;
+    final storage = _CountingSecureStorage(
+      onRead: () => seedReads++,
+    );
+    final service = TransactionSigningService(
+      secureStorage: storage,
+      network: Network.TESTNET,
+    );
+
+    await expectLater(
+      () => service.signXdrLocally('not-valid-xdr'),
+      throwsA(isA<FormatException>()),
+    );
+    expect(seedReads, 0);
   });
 
   test('throws on malformed XDR', () async {

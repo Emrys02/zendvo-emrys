@@ -24,6 +24,17 @@ class TransactionSigningService {
       throw ArgumentError('unsignedXdr must not be empty');
     }
 
+    // Validate XDR before touching the secret seed so malformed input
+    // never pulls the private key into memory.
+    final AbstractTransaction transaction;
+    try {
+      transaction = AbstractTransaction.fromEnvelopeXdrString(unsignedXdr);
+    } catch (e) {
+      throw FormatException(
+        'Malformed or invalid Base64 XDR transaction envelope: $e',
+      );
+    }
+
     String? secretSeed;
     try {
       secretSeed = await _secureStorage.getSecretSeed();
@@ -31,16 +42,6 @@ class TransactionSigningService {
         throw StateError(
           'No secret seed found in secure storage. '
           'Generate or restore a wallet before signing.',
-        );
-      }
-
-      final AbstractTransaction transaction;
-      try {
-        transaction =
-            AbstractTransaction.fromEnvelopeXdrString(unsignedXdr);
-      } catch (e) {
-        throw FormatException(
-          'Malformed or invalid Base64 XDR transaction envelope: $e',
         );
       }
 
