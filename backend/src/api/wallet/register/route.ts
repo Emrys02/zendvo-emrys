@@ -25,17 +25,17 @@ export async function POST(request: NextRequest) {
     const { userId } = payload;
 
     // 2. Parse request body — a non-object or null body is treated as empty
-    let body: Record<string, unknown>;
+    let body: unknown;
     try {
-      const parsed: unknown = await request.json();
-      body = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : {};
+      body = await request.json();
     } catch {
       body = {};
     }
 
-    const { stellarAddress } = body as { stellarAddress?: unknown };
+    const { stellarAddress } =
+      body !== null && typeof body === "object" && !Array.isArray(body)
+        ? (body as { stellarAddress?: unknown })
+        : {};
 
     if (typeof stellarAddress !== "string" || !stellarAddress.trim()) {
       return createProblemDetails(
