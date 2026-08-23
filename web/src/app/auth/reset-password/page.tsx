@@ -55,7 +55,7 @@ const ResetPasswordPage: React.FC = () => {
     }
   };
 
-  const isFormValid = password && confirmPassword && password === confirmPassword && password.length >= 8;
+  const isFormValid = password && confirmPassword && password.length >= 8;
 
   return (
     <AuthLayout showcaseContent={<WorldMapShowcase />}>

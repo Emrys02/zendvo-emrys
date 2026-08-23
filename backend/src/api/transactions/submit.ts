@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { getAuthPayload } from "@/lib/auth-session";
 import { createProblemDetails } from "@/lib/api-utils";
 import { SubmissionService } from "@/lib/stellar/submission_service";
+import { TransactionBuilder, Networks } from "@stellar/stellar-sdk";
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,17 +33,46 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    let tx;
+    try {
+      const networkPassphrase = process.env.STELLAR_NETWORK === 'public' ? Networks.PUBLIC : Networks.TESTNET;
+      tx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
+    } catch (e) {
+      return createProblemDetails("about:blank", "Bad Request", 400, "Invalid XDR format");
+    }
+
+    let amount = 0;
+    let hasUsdc = false;
+    for (const op of tx.operations) {
+      if (op.type === "payment" && !op.asset.isNative() && op.asset.getCode() === "USDC") {
+        hasUsdc = true;
+        amount = parseFloat(op.amount);
+        break;
+      }
+    }
+
+    if (!hasUsdc) {
+      return createProblemDetails("about:blank", "Bad Request", 400, "Transaction must contain a USDC payment");
+    }
+
+    const userResult = await db.select().from(users).where(eq(users.id, userId as string)).limit(1);
+    const user = userResult[0];
+
+    if (!user || !user.stellarAddress) {
+      return createProblemDetails("about:blank", "Bad Request", 400, "User stellar address not found");
+    }
+
     // Submit the XDR to the network using the robust submission service
-    const result = await SubmissionService.submitXdrToNetwork(signedXdr);
+    const result = await SubmissionService.submitXdrToNetwork(signedXdr, user.stellarAddress);
 
     if (result.success && result.hash) {
       // Log the submitted transaction in the database
       await db.insert(transactions).values({
         userId: userId as string,
-        amount: 0,
+        amount,
         currency: "USDC",
         type: "blockchain_submission" as const,
-        status: "submitted" as const,
+        status: "pending" as const,
         reference: result.hash,
       });
 

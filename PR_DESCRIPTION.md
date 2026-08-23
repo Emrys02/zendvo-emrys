@@ -26,7 +26,7 @@ Implemented a robust XDR network submission service and API endpoint for submitt
 - Registered route: `apiRouter.post("/api/transactions/submit", makeExpressHandler(transactionSubmitPost))`
 
 ## API endpoint
-```
+```http
 POST /api/transactions/submit
 Body: { "signedXdr": "base64_xdr_string" }
 Auth: Required (user JWT)

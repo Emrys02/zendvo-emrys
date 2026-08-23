@@ -1,4 +1,4 @@
-import { StrKey } from "@stellar/stellar-sdk";
+import { StrKey, TransactionBuilder, Networks, Keypair } from "@stellar/stellar-sdk";
 
 export interface SubmitXdrResponse {
   hash: string;
@@ -24,6 +24,7 @@ export class SubmissionService {
 
   static async submitXdrToNetwork(
     signedXdr: string,
+    userStellarAddress: string,
     maxRetries?: number
   ): Promise<SubmissionResult> {
     const retries = maxRetries ?? SubmissionService.MAX_RETRIES;
@@ -31,7 +32,7 @@ export class SubmissionService {
 
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        const result = await SubmissionService.submitAttempt(signedXdr);
+        const result = await SubmissionService.submitAttempt(signedXdr, userStellarAddress);
         if (result.success) {
           return {
             success: true,
@@ -41,6 +42,10 @@ export class SubmissionService {
           };
         }
         lastError = new Error(result.error || "Unknown submission error");
+        
+        if (result.isRetryable === false) {
+          break; // Stop immediately for permanent failures
+        }
       } catch (error) {
         lastError = error instanceof Error ? error : new Error("Unknown submission error");
       }
@@ -67,22 +72,30 @@ export class SubmissionService {
     };
   }
 
-  private static async submitAttempt(signedXdr: string): Promise<{ success: boolean; hash?: string; error?: string }> {
+  private static async submitAttempt(signedXdr: string, userStellarAddress: string): Promise<{ success: boolean; hash?: string; error?: string; isRetryable?: boolean }> {
     // Validate that the XDR is a valid base64 string
     if (!signedXdr || typeof signedXdr !== "string") {
-      return { success: false, error: "Invalid XDR: must be a non-empty string" };
+      return { success: false, error: "Invalid XDR: must be a non-empty string", isRetryable: false };
     }
 
-    // Validate XDR format (base64 check)
     try {
-      // Attempt to decode the XDR to validate it
-      const decoder = btoa;
-      // Basic validation - XDR should be base64-encoded
-      if (!signedXdr.match(/^[A-Za-z0-9+/]+=*$/)) {
-        return { success: false, error: "Invalid XDR format: not valid base64" };
+      const networkPassphrase = process.env.STELLAR_NETWORK === 'public' ? Networks.PUBLIC : Networks.TESTNET;
+      const tx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
+      
+      const keypair = Keypair.fromPublicKey(userStellarAddress);
+      let isSigned = false;
+      for (const sig of tx.signatures) {
+        if (keypair.verify(tx.hash(), sig.signature())) {
+          isSigned = true;
+          break;
+        }
+      }
+      
+      if (!isSigned) {
+        return { success: false, error: "Unauthorized: transaction is not signed by the user", isRetryable: false };
       }
     } catch {
-      return { success: false, error: "Invalid XDR format: base64 decoding failed" };
+      return { success: false, error: "Invalid XDR format: decoding failed", isRetryable: false };
     }
 
     try {
@@ -92,25 +105,33 @@ export class SubmissionService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-      const response = await fetch(`${horizonUrl}/transactions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/xdr",
-        },
-        body: signedXdr,
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
+      let response;
+      try {
+        response = await fetch(`${horizonUrl}/transactions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: `tx=${encodeURIComponent(signedXdr)}`,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         const errorBody = await response.text();
         let errorMessage = `Horizon responded with ${response.status}`;
 
+        // Check if it's a known retryable error
+        if (response.status === 502 || response.status === 503 || response.status === 504) {
+          return { success: false, error: `Network error (${response.status}): ${errorMessage}`, isRetryable: true };
+        }
+
         try {
           const errorJson = JSON.parse(errorBody);
           if (errorJson.extras && errorJson.extras.result_codes) {
-            errorMessage = `Transaction failed: ${errorJson.extras.result_codes}`;
+            errorMessage = `Transaction failed: ${errorJson.extras.result_codes.transaction || JSON.stringify(errorJson.extras.result_codes)}`;
           } else if (errorJson.type) {
             errorMessage = `Horizon error: ${errorJson.type} - ${errorJson.explanation || errorMessage}`;
           }
@@ -118,18 +139,13 @@ export class SubmissionService {
           errorMessage = `Horizon error: ${response.status} - ${errorBody}`;
         }
 
-        // Check if it's a known retryable error
-        if (response.status === 502 || response.status === 503 || response.status === 504) {
-          return { success: false, error: `Network error (${response.status}): ${errorMessage}` };
-        }
-
-        return { success: false, error: errorMessage };
+        return { success: false, error: errorMessage, isRetryable: false };
       }
 
       const data = (await response.json()) as SubmitXdrResponse;
 
       if (!data.hash) {
-        return { success: false, error: "Submission succeeded but no hash returned from Horizon" };
+        return { success: false, error: "Submission succeeded but no hash returned from Horizon", isRetryable: false };
       }
 
       return {
@@ -148,7 +164,7 @@ export class SubmissionService {
         throw err; // Will be caught by the retry loop
       }
 
-      return { success: false, error: err.message };
+      return { success: false, error: err.message, isRetryable: false };
     }
   }
 

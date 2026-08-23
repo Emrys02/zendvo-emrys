@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useState } from "react";
+import React, { Suspense, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthContext } from "@/context/AuthContext";
@@ -14,14 +14,26 @@ function LoginForm() {
   const REMEMBER_ME_KEY = "zendvo.rememberMe";
   const REMEMBERED_EMAIL_KEY = "zendvo.rememberedEmail";
 
-  const storedRememberMe = localStorage.getItem(REMEMBER_ME_KEY) === "true";
-  const storedEmail = localStorage.getItem(REMEMBERED_EMAIL_KEY);
-
-  const [email, setEmail] = useState(storedEmail || "");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [rememberMe, setRememberMe] = useState(storedRememberMe);
+  const [rememberMe, setRememberMe] = useState(false);
+
+  useEffect(() => {
+    try {
+      const storedRememberMe = localStorage.getItem(REMEMBER_ME_KEY) === "true";
+      const storedEmail = localStorage.getItem(REMEMBERED_EMAIL_KEY);
+      if (storedRememberMe) {
+        setRememberMe(true);
+      }
+      if (storedEmail) {
+        setEmail(storedEmail);
+      }
+    } catch (err) {
+      console.warn("localStorage is not available", err);
+    }
+  }, []);
   const { login } = useAuthContext();
   const router = useRouter();
   const searchParams = useSearchParams();

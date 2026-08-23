@@ -1,13 +1,9 @@
-import * as React from 'react';
+import "react";
 
-declare global {
+declare module "react" {
   namespace JSX {
     interface IntrinsicElements {
       [elemName: string]: unknown;
     }
   }
-}
-
-declare module "react/jsx-runtime" {
-  export const JSX: typeof React;
 }
