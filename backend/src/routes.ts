@@ -83,6 +83,12 @@ import { POST as verifyDeletionOtpPost } from "./api/auth/verify-deletion-otp/ro
 // Upload
 import { POST as uploadImagePost } from "./api/upload/image/route";
 
+// Transaction submission
+import { POST as transactionSubmitPost } from "./api/transactions/submit";
+
+// 6. Transaction submission route
+apiRouter.post("/api/transactions/submit", makeExpressHandler(transactionSubmitPost));
+
 export const apiRouter = Router();
 
 // 1. Authentication routes
