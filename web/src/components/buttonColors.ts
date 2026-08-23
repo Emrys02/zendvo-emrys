@@ -4,7 +4,7 @@ export const secondaryDisabledText = "#374151";
 
 export const primaryDisabledBg = "#5A45FEB3"; 
 
-export default {
+export const buttonColors = {
   secondaryDisabledBg,
   secondaryDisabledText,
   primaryDisabledBg,

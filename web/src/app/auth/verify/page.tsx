@@ -45,7 +45,7 @@ export default function VerifyPage() {
       }, 1000);
     }
     return () => clearInterval(timer);
-  }, [timeLeft > 0]);
+  }, [timeLeft]);
 
   
   useEffect(() => {

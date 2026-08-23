@@ -89,14 +89,19 @@ export class SubmissionService {
       // Submit the XDR to Horizon
       const horizonUrl = process.env.STELLAR_HORIZON_URL || "https://horizon-testnet.stellar.org";
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+
       const response = await fetch(`${horizonUrl}/transactions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/xdr",
         },
         body: signedXdr,
-        timeout: 30000,
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorBody = await response.text();
@@ -138,7 +143,7 @@ export class SubmissionService {
       if (
         err.message.includes("timeout") ||
         err.message.includes("network") ||
-        err.message instanceof TypeError
+        err instanceof TypeError
       ) {
         throw err; // Will be caught by the retry loop
       }

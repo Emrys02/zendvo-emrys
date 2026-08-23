@@ -7,7 +7,6 @@ import { Gift } from "lucide-react";
 interface CurrencyCardProps {
   type: "sent" | "received";
   amount: string;
-  flag: string;
   currency: string;
   tailPosition?: "top" | "bottom";
 }
@@ -15,7 +14,6 @@ interface CurrencyCardProps {
 const CurrencyCard: React.FC<CurrencyCardProps> = ({
   type,
   amount,
-  flag,
   currency,
   tailPosition = "top",
 }) => {
@@ -77,7 +75,6 @@ export const WorldMapShowcase: React.FC = () => {
             type="sent"
             amount="200.00"
             currency="CAD"
-            flag="🇨🇦"
             tailPosition="top"
           />
         </motion.div>
@@ -92,7 +89,6 @@ export const WorldMapShowcase: React.FC = () => {
             type="received"
             amount="245,000.00"
             currency="NGN"
-            flag="🇳🇬"
             tailPosition="bottom"
           />
         </motion.div>
@@ -107,7 +103,6 @@ export const WorldMapShowcase: React.FC = () => {
             type="received"
             amount="200.00"
             currency="GHS"
-            flag="🇬🇭"
             tailPosition="top"
           />
         </motion.div>

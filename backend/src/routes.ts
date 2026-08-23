@@ -87,9 +87,9 @@ import { POST as uploadImagePost } from "./api/upload/image/route";
 import { POST as transactionSubmitPost } from "./api/transactions/submit";
 
 // 6. Transaction submission route
+export const apiRouter = Router();
 apiRouter.post("/api/transactions/submit", makeExpressHandler(transactionSubmitPost));
 
-export const apiRouter = Router();
 
 // 1. Authentication routes
 apiRouter.post("/api/auth", makeExpressHandler(authPost));

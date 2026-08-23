@@ -1,6 +1,5 @@
 import { NotificationIcon } from "@/assets/svg";
 import { ArrowLeft } from "lucide-react";
-import UserProfile from "@/assets/images/user.png";
 import MobileLogo from "../../../assets/images/zendo-logo.png";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";

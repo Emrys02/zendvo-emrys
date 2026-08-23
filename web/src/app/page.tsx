@@ -4,7 +4,7 @@ import React from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { motion } from "framer-motion";
-import { ArrowRight, Gift, Shield, Zap } from "lucide-react";
+import { ArrowRight, Zap } from "lucide-react";
 
 export default function LandingPage() {
   return (
@@ -178,10 +178,10 @@ export default function LandingPage() {
             ].map((t, i) => (
               <motion.div 
                 key={i}
-                className="min-w-[350px] bg-white p-8 rounded-[40px] shadow-sm border border-slate-50 flex flex-col justify-between"
+                className="min-w-87.5 bg-white p-8 rounded-[40px] shadow-sm border border-slate-50 flex flex-col justify-between"
                 whileHover={{ scale: 1.02 }}
               >
-                <p className="text-[#717182] text-lg italic mb-6">"{t.text}"</p>
+                <p className="text-[#717182] text-lg italic mb-6">{t.text}</p>
                 <div>
                   <p className="font-bold text-slate-900">{t.name}</p>
                   <p className="text-sm text-[#5A42DE] font-medium">{t.role}</p>
@@ -202,7 +202,7 @@ export default function LandingPage() {
               { q: "What currencies do you support?", a: "Currently we support NGN and USDC, allowing for stable global and local transfers." },
               { q: "Can I cancel a gift after sending?", a: "Gifts can be cancelled only if they haven't been claimed and the unlock date hasn't passed. A small processing fee may apply." }
             ].map((item, i) => (
-              <details key={i} className="group bg-[#F8FAFF] rounded-[24px] overflow-hidden border border-slate-50">
+              <details key={i} className="group bg-[#F8FAFF] rounded overflow-hidden border border-slate-50">
                 <summary className="flex items-center justify-between p-6 cursor-pointer list-none">
                   <span className="text-lg font-bold text-slate-900">{item.q}</span>
                   <span className="transition-transform group-open:rotate-180">

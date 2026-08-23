@@ -47,7 +47,7 @@ export async function verifyAccessToken(
   try {
     const { payload } = await jose.jwtVerify(token, encodedAccessTokenSecret);
     return payload as unknown as TokenPayload;
-  } catch (error) {
+  } catch {
     return null;
   }
 }
@@ -75,7 +75,7 @@ export async function verifyRefreshToken(
   try {
     const { payload } = await jose.jwtVerify(token, encodedRefreshTokenSecret);
     return payload as unknown as TokenPayload;
-  } catch (error) {
+  } catch {
     return null;
   }
 }

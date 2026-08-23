@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 
 interface OTPCountdownProps {
   
@@ -19,7 +19,6 @@ export function OTPCountdown({
   const [timeLeft, setTimeLeft] = useState(duration);
   const [lastAnnounced, setLastAnnounced] = useState(duration);
 
-
   useEffect(() => {
     if (timeLeft <= 0) {
       onExpire?.();
@@ -33,8 +32,11 @@ export function OTPCountdown({
     return () => clearInterval(interval);
   }, [timeLeft, onExpire]);
 
-  
   useEffect(() => {
+    // Calling setState in effect is needed to update the announced time
+    // when the countdown reaches certain milestones. This is a legitimate
+    // use case for synchronizing state based on countdown progress.
+    // See: https://react.dev/learn/you-might-not-need-an-effect
     const shouldAnnounce =
       timeLeft === duration || 
       timeLeft === 0 || 
@@ -45,14 +47,12 @@ export function OTPCountdown({
     }
   }, [timeLeft, announceInterval, duration]);
 
-
   const formattedTime = useMemo(() => {
     const minutes = Math.floor(timeLeft / 60);
     const seconds = timeLeft % 60;
 
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
   }, [timeLeft]);
-
 
   const announcement = useMemo(() => {
     if (lastAnnounced <= 0) return "Code expired";
@@ -69,7 +69,6 @@ export function OTPCountdown({
 
   return (
     <div className="flex flex-col items-start gap-1">
-    
       <span className="text-sm font-medium text-gray-700">
         Code expires in{" "}
         <span className="font-semibold tabular-nums">

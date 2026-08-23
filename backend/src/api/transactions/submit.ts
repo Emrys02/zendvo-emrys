@@ -4,7 +4,7 @@ import { transactions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getAuthPayload } from "@/lib/auth-session";
 import { createProblemDetails } from "@/lib/api-utils";
-import { SubmissionService } from "@/lib/stellar/submission-service";
+import { SubmissionService } from "@/lib/stellar/submission_service";
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,11 +38,11 @@ export async function POST(request: NextRequest) {
     if (result.success && result.hash) {
       // Log the submitted transaction in the database
       await db.insert(transactions).values({
-        userId,
+        userId: userId as string,
         amount: 0,
         currency: "USDC",
-        type: "blockchain_submission",
-        status: "submitted",
+        type: "blockchain_submission" as const,
+        status: "submitted" as const,
         reference: result.hash,
       });
 
