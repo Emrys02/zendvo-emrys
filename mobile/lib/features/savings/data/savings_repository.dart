@@ -48,9 +48,32 @@ class SavingsRepository {
   final ValueNotifier<SavingsSubmissionStatus> submissionStatus =
       ValueNotifier<SavingsSubmissionStatus>(SavingsSubmissionStatus.idle);
 
+  /// Requests an unsigned deposit XDR envelope from the backend for the
+  /// given [amount] and [accountId].
+  ///
+  /// Domain exceptions from [ApiClient.postWithRetry] (e.g.
+  /// [TransactionFailedException], [NetworkCongestedException]) are
+  /// rethrown so the caller/UI controller can handle them; this keeps app
+  /// state from getting stuck after a permanent failure.
   Future<String> requestDepositXdr(String amount, String accountId) async {
-    // TODO: Call backend deposit endpoint via _apiClient.postWithRetry.
-    return 'unsigned_deposit_xdr_placeholder';
+    try {
+      final response = await _apiClient.postWithRetry(
+        '$_baseUrl/api/savings/deposit',
+        {'amount': amount, 'accountId': accountId},
+      );
+
+      final xdr = response['xdr'] as String?;
+      if (xdr == null || xdr.isEmpty) {
+        throw const TransactionFailedException(
+          'The network accepted the request but did not return a deposit XDR.',
+        );
+      }
+      return xdr;
+    } catch (e) {
+      // Re-throw domain exceptions so the UI controller can catch and handle
+      // them properly, keeping app state from looping in "pending".
+      rethrow;
+    }
   }
 
   /// Submits a signed XDR envelope to the backend relay with automatic
