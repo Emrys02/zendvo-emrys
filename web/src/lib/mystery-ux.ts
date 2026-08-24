@@ -17,7 +17,8 @@ export const playMysterySound = (type: "unwrap" | "shine" | "reveal" | "scratch"
   if (typeof window === "undefined") return;
 
   try {
-    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const AudioContext = window.AudioContext || (window as Window & { webkitAudioContext?: typeof window.AudioContext }).webkitAudioContext;
+    const audioCtx = new AudioContext();
     const oscillator = audioCtx.createOscillator();
     const gainNode = audioCtx.createGain();
 

@@ -245,6 +245,7 @@ export const notifications = pgTable(
 
 export const transactionStatusEnum = pgEnum("transaction_status", [
   "pending",
+  "submitted",
   "completed",
   "failed",
 ]);
@@ -253,6 +254,7 @@ export const transactionTypeEnum = pgEnum("transaction_type", [
   "deposit",
   "withdrawal",
   "transfer",
+  "blockchain_submission",
 ]);
 
 export const bankAccounts = pgTable(

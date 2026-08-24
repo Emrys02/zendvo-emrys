@@ -7,7 +7,7 @@ const tsJestTransformCfg = createDefaultPreset().transform;
 module.exports = {
   testEnvironment: "node",
   transform: {
-    "^.+\\.tsx?$": ["ts-jest", { isolatedModules: true }],
+    "^.+\\.tsx?$": "ts-jest",
   },
   transformIgnorePatterns: [
     "node_modules/(?!(nanoid)/)",

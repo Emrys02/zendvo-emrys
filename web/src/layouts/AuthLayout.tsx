@@ -1,5 +1,4 @@
 import React, { ReactNode } from "react";
-import { Check } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 

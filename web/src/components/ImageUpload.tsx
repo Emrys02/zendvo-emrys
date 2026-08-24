@@ -114,7 +114,7 @@ const ImageUpload = ({
               onClick={removeImage}
               disabled={isSubmitting}
               className={`
-              h-[34px] w-[34px]     
+              h-8.5 w-8.5     
               flex items-center justify-center
               rounded-full
               bg-[#E4EFFD]/80 hover:bg-[#E4EFFD]

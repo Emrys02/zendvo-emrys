@@ -11,7 +11,6 @@ const ResetPasswordPage: React.FC = () => {
   const router = useRouter();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [strength, setStrength] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -26,14 +25,7 @@ const ResetPasswordPage: React.FC = () => {
     return score as 0 | 1 | 2 | 3 | 4;
   };
 
-  useEffect(() => {
-    setStrength(calculateStrength(password));
-    if (confirmPassword && password !== confirmPassword) {
-      setError('Passwords do not match');
-    } else {
-      setError(null);
-    }
-  }, [password, confirmPassword]);
+  const strength = calculateStrength(password);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -56,14 +48,14 @@ const ResetPasswordPage: React.FC = () => {
       setTimeout(() => {
         router.push('/auth/login?reset=success');
       }, 3000);
-    } catch (err) {
+    } catch {
       setError('An error occurred. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const isFormValid = password && confirmPassword && password === confirmPassword && password.length >= 8;
+  const isFormValid = password && confirmPassword && password.length >= 8;
 
   return (
     <AuthLayout showcaseContent={<WorldMapShowcase />}>
