@@ -2,7 +2,7 @@
 module.exports = {
   testEnvironment: "node",
   transform: {
-    "^.+\\.tsx?$": ["ts-jest", { isolatedModules: true }],
+    "^.+\\.tsx?$": "ts-jest",
   },
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
