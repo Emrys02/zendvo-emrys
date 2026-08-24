@@ -29,8 +29,10 @@ export class SubmissionService {
   ): Promise<SubmissionResult> {
     const retries = maxRetries ?? SubmissionService.MAX_RETRIES;
     let lastError: Error | null = null;
+    let attempts = 0;
 
     for (let attempt = 1; attempt <= retries; attempt++) {
+      attempts = attempt;
       try {
         const result = await SubmissionService.submitAttempt(signedXdr, userStellarAddress);
         if (result.success) {
@@ -68,7 +70,7 @@ export class SubmissionService {
       success: false,
       error: lastError?.message || "Max retries exceeded",
       status: "failed",
-      attempts: retries,
+      attempts,
     };
   }
 
@@ -157,6 +159,7 @@ export class SubmissionService {
 
       // Network errors or timeouts - retryable
       if (
+        err.name === "AbortError" ||
         err.message.includes("timeout") ||
         err.message.includes("network") ||
         err instanceof TypeError

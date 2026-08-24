@@ -26,9 +26,9 @@ function LoginForm() {
       const storedEmail = localStorage.getItem(REMEMBERED_EMAIL_KEY);
       if (storedRememberMe) {
         setRememberMe(true);
-      }
-      if (storedEmail) {
-        setEmail(storedEmail);
+        if (storedEmail) {
+          setEmail(storedEmail);
+        }
       }
     } catch (err) {
       console.warn("localStorage is not available", err);
