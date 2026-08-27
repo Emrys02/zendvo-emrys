@@ -21,6 +21,21 @@ export const userStatusEnum = pgEnum("user_status", [
   "deleted",
 ]);
 
+export const savingsStatusEnum = pgEnum("savings_status", [
+  "inactive",
+  "active",
+]);
+
+export const savingsTransactionStatusEnum = pgEnum(
+  "savings_transaction_status",
+  ["pending", "completed", "failed"],
+);
+
+export const savingsTransactionTypeEnum = pgEnum(
+  "savings_transaction_type",
+  ["deposit", "withdrawal", "yield_claim"],
+);
+
 export const users = pgTable(
   "users",
   {
@@ -46,6 +61,11 @@ export const users = pgTable(
     is2faEnabled: boolean("is_2fa_enabled").default(false).notNull(),
     totpSecret: text("totp_secret"),
     stellarAddress: text("stellar_address"),
+    savingsStatus: savingsStatusEnum("savings_status")
+      .default("inactive")
+      .notNull(),
+    savingsBalance: doublePrecision("savings_balance").default(0).notNull(),
+    vaultContractId: text("vault_contract_id"),
   },
   (table) => {
     return [
@@ -380,6 +400,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   bankAccounts: many(bankAccounts),
   transactions: many(transactions),
   giftsMetadata: many(giftsMetadata),
+  savingsHistory: many(savingsHistory),
 }));
 
 export const emailVerificationsRelations = relations(
@@ -449,3 +470,45 @@ export const giftsMetadataRelations = relations(giftsMetadata, ({ one }) => ({
 }));
 
 export const webhookRetryQueueRelations = relations(webhookRetryQueue, () => ({}));
+
+export const savingsHistory = pgTable(
+  "savings_history",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    vaultContractId: text("vault_contract_id").notNull(),
+    type: savingsTransactionTypeEnum("type").notNull(),
+    status: savingsTransactionStatusEnum("status")
+      .default("pending")
+      .notNull(),
+    amount: doublePrecision("amount").notNull(),
+    currency: text("currency").default("USDC").notNull(),
+    transactionHash: text("transaction_hash"),
+    sharesToBurn: doublePrecision("shares_to_burn"),
+    sharePrice: doublePrecision("share_price"),
+    sharesBalance: doublePrecision("shares_balance"),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("sh_user_id_idx").on(table.userId),
+    index("sh_vault_contract_id_idx").on(table.vaultContractId),
+    index("sh_status_idx").on(table.status),
+    index("sh_type_idx").on(table.type),
+    index("sh_transaction_hash_idx").on(table.transactionHash),
+    index("sh_created_at_idx").on(table.createdAt),
+  ],
+);
+
+export const savingsHistoryRelations = relations(
+  savingsHistory,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [savingsHistory.userId],
+      references: [users.id],
+    }),
+  }),
+);
