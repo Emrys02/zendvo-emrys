@@ -109,6 +109,40 @@ void main() {
       client.close();
     });
 
+    test('adds a Bearer token from the auth provider', () async {
+      final (server, uri) = await startServer((request) async {
+        expect(request.headers.value(HttpHeaders.authorizationHeader), 'Bearer test-token');
+        return jsonResponse(request, 200, {'ok': true});
+      });
+      addTearDown(() => server.close(force: true));
+
+      final client = ApiClient(
+        authTokenProvider: () async => 'test-token',
+        baseDelay: const Duration(milliseconds: 1),
+      );
+      await client.postWithRetry(uri.toString(), const {});
+      client.close();
+    });
+
+    test('maps HTTP 409 to ConflictException without retrying', () async {
+      var attempts = 0;
+      final (server, uri) = await startServer((request) async {
+        attempts++;
+        return jsonResponse(request, 409, {'message': 'address already registered'});
+      });
+      addTearDown(() => server.close(force: true));
+
+      final client = ApiClient(maxRetries: 3, baseDelay: const Duration(milliseconds: 1));
+      await expectLater(
+        client.postWithRetry(uri.toString(), const {}),
+        throwsA(isA<ConflictException>()
+            .having((e) => e.statusCode, 'statusCode', 409)
+            .having((e) => e.message, 'message', 'address already registered')),
+      );
+      expect(attempts, 1);
+      client.close();
+    });
+
     test('maps other 4xx codes to ApiRequestException without retrying', () async {
       var attempts = 0;
       final (server, uri) = await startServer((request) async {

@@ -36,6 +36,46 @@ Future<void> jsonResponse(HttpRequest request, int statusCode, Map<String, dynam
 }
 
 void main() {
+  group('SavingsRepository.registerStellarAddress', () {
+    test('posts the public key to the wallet registration endpoint', () async {
+      final (server, baseUri) = await startServer((request) async {
+        expect(request.uri.path, '/api/wallet/register');
+        final body = await utf8.decoder.bind(request).join();
+        expect(jsonDecode(body), {'stellarAddress': 'GABC'});
+        expect(request.headers.value(HttpHeaders.authorizationHeader), 'Bearer test-token');
+        return jsonResponse(request, 200, {'ok': true});
+      });
+      addTearDown(() => server.close(force: true));
+
+      final repository = SavingsRepository(
+        apiClient: ApiClient(
+          authTokenProvider: () async => 'test-token',
+          baseDelay: const Duration(milliseconds: 1),
+        ),
+        baseUrl: baseUri.toString(),
+      );
+
+      await repository.registerStellarAddress('GABC');
+    });
+
+    test('propagates duplicate address conflicts', () async {
+      final (server, baseUri) = await startServer((request) async {
+        return jsonResponse(request, 409, {'message': 'address already registered'});
+      });
+      addTearDown(() => server.close(force: true));
+
+      final repository = SavingsRepository(
+        apiClient: ApiClient(baseDelay: const Duration(milliseconds: 1)),
+        baseUrl: baseUri.toString(),
+      );
+
+      await expectLater(
+        repository.registerStellarAddress('GABC'),
+        throwsA(isA<ConflictException>()),
+      );
+    });
+  });
+
   group('SavingsRepository.submitSignedXdr', () {
     test('submits the signed XDR and reports succeeded state with the hash', () async {
       final (server, baseUri) = await startServer((request) async {
