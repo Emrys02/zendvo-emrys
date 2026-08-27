@@ -86,9 +86,16 @@ import { POST as uploadImagePost } from "./api/upload/image/route";
 // Transaction submission
 import { POST as transactionSubmitPost } from "./api/transactions/submit";
 
-// 6. Transaction submission route
+// SEP-24 Webhook
+import { POST as sep24WebhookPost } from "./api/webhooks/sep24/route";
+
 export const apiRouter = Router();
+
+// 6. Transaction submission route
 apiRouter.post("/api/transactions/submit", makeExpressHandler(transactionSubmitPost));
+
+// 7. SEP-24 Anchor webhook listener
+apiRouter.post("/api/webhooks/sep24", makeExpressHandler(sep24WebhookPost));
 
 
 // 1. Authentication routes
