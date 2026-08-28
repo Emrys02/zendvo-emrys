@@ -563,4 +563,63 @@ describe("DefindexService.calculateDepositParams", () => {
       DefindexService.calculateDepositParams(USER_ADDRESS, DEPOSIT_AMOUNT),
     ).rejects.toThrow(DefindexServiceError);
   });
+
+  it("throws when the vault has shares but no managed funds", async () => {
+    mockSimulateTransaction.mockImplementation(async (tx: any) => {
+      switch (invokedMethod(tx)) {
+        case "total_supply":
+          return successResponse(nativeToScVal(TOTAL_SUPPLY, { type: "i128" }));
+        case "fetch_total_managed_funds":
+          return successResponse(managedFundsResponse(0n));
+        default:
+          throw new Error(`Unexpected contract method ${invokedMethod(tx)}`);
+      }
+    });
+
+    await expect(
+      DefindexService.calculateDepositParams(USER_ADDRESS, DEPOSIT_AMOUNT),
+    ).rejects.toThrow(
+      /has shares in circulation but manages no USDC funds/,
+    );
+  });
+
+  it("throws when the vault manages funds but has no shares", async () => {
+    mockSimulateTransaction.mockImplementation(async (tx: any) => {
+      switch (invokedMethod(tx)) {
+        case "total_supply":
+          return successResponse(nativeToScVal(0n, { type: "i128" }));
+        case "fetch_total_managed_funds":
+          return successResponse(managedFundsResponse());
+        default:
+          throw new Error(`Unexpected contract method ${invokedMethod(tx)}`);
+      }
+    });
+
+    await expect(
+      DefindexService.calculateDepositParams(USER_ADDRESS, DEPOSIT_AMOUNT),
+    ).rejects.toThrow(
+      /manages .* units but has no shares in circulation/,
+    );
+  });
+
+  it("classifies validation errors as kind 'validation'", async () => {
+    await expect(
+      DefindexService.calculateDepositParams(USER_ADDRESS, "abc"),
+    ).rejects.toMatchObject({ kind: "validation" });
+  });
+
+  it("classifies configuration errors as kind 'configuration'", async () => {
+    delete process.env.DEFINDEX_VAULT_CONTRACT_ID;
+    await expect(
+      DefindexService.calculateDepositParams(USER_ADDRESS, DEPOSIT_AMOUNT),
+    ).rejects.toMatchObject({ kind: "configuration" });
+  });
+
+  it("classifies RPC failures as kind 'upstream'", async () => {
+    mockSimulateTransaction.mockRejectedValue(new Error("rpc exploded"));
+
+    await expect(
+      DefindexService.calculateDepositParams(USER_ADDRESS, DEPOSIT_AMOUNT),
+    ).rejects.toMatchObject({ kind: "upstream" });
+  });
 });

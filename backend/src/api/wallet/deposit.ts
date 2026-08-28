@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   DefindexService,
   DefindexServiceError,
-} from "../../lib/services/defindex_service";
-import { getAuthPayload } from "../../lib/auth-session";
-import { createProblemDetails } from "../../lib/api-utils";
-import { db } from "../../lib/db";
-import { users } from "../../lib/db/schema";
+} from "@/lib/services/defindex_service";
+import { getAuthPayload } from "@/lib/auth-session";
+import { createProblemDetails } from "@/lib/api-utils";
+import { db } from "@/lib/db";
+import { users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
@@ -70,12 +70,30 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("[WALLET_DEPOSIT_ERROR]", error);
     if (error instanceof DefindexServiceError) {
-      return createProblemDetails(
-        "about:blank",
-        "Bad Request",
-        400,
-        error.message,
-      );
+      switch (error.kind) {
+        case "configuration":
+          return createProblemDetails(
+            "about:blank",
+            "Internal Server Error",
+            500,
+            "The DeFindex vault is not configured correctly",
+          );
+        case "upstream":
+          return createProblemDetails(
+            "about:blank",
+            "Bad Gateway",
+            502,
+            "The DeFindex vault could not be reached at this time",
+          );
+        case "validation":
+        default:
+          return createProblemDetails(
+            "about:blank",
+            "Bad Request",
+            400,
+            error.message,
+          );
+      }
     }
     return createProblemDetails(
       "about:blank",

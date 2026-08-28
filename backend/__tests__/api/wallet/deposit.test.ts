@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
-import { POST } from "../../../src/api/wallet/deposit";
-import { getAuthPayload } from "../../../src/lib/auth-session";
-import { DefindexService, DefindexServiceError } from "../../../src/lib/services/defindex_service";
+import { POST } from "@/api/wallet/deposit";
+import { getAuthPayload } from "@/lib/auth-session";
+import { DefindexService, DefindexServiceError } from "@/lib/services/defindex_service";
 
 const VALID_STELLAR_ADDRESS = "GDWF77422SKLZTBQT77BQEQLCIQY6PFTFZX5OFJTLAFFWJ2PK5WBOZAN";
 
-jest.mock("../../../src/lib/auth-session", () => ({
+jest.mock("@/lib/auth-session", () => ({
   getAuthPayload: jest.fn(),
 }));
 
@@ -21,7 +21,7 @@ jest.mock("@stellar/stellar-sdk", () => {
   };
 });
 
-jest.mock("../../../src/lib/db", () => {
+jest.mock("@/lib/db", () => {
   const selectWhere = jest.fn();
   return {
     db: {
@@ -35,8 +35,8 @@ jest.mock("../../../src/lib/db", () => {
   };
 });
 
-jest.mock("../../../src/lib/services/defindex_service", () => {
-  const actual = jest.requireActual("../../../src/lib/services/defindex_service");
+jest.mock("@/lib/services/defindex_service", () => {
+  const actual = jest.requireActual("@/lib/services/defindex_service");
   return {
     ...actual,
     DefindexService: {
@@ -49,7 +49,7 @@ const mockGetAuthPayload = getAuthPayload as jest.Mock;
 const mockCalculateDepositParams = (
   DefindexService as jest.Mocked<typeof DefindexService>
 ).calculateDepositParams as jest.Mock;
-const { __mocks } = require("../../../src/lib/db");
+const { __mocks } = require("@/lib/db");
 
 const MOCK_RESULT = {
   userAddress: VALID_STELLAR_ADDRESS,
@@ -147,13 +147,16 @@ describe("POST /api/wallet/deposit", () => {
     );
   });
 
-  it("returns 400 with a helpful detail when the service raises a DefindexServiceError", async () => {
+  it("returns 400 with a helpful detail when the service reports a validation error", async () => {
     mockGetAuthPayload.mockResolvedValue({ userId: "user-1" });
     __mocks.selectWhere.mockResolvedValueOnce([
       { stellarAddress: VALID_STELLAR_ADDRESS },
     ]);
     mockCalculateDepositParams.mockRejectedValueOnce(
-      new DefindexServiceError("Invalid deposit amount"),
+      new DefindexServiceError(
+        "Invalid deposit amount \"-5\": must be greater than zero",
+        "validation",
+      ),
     );
 
     const res = await POST(makeRequest({ amount: "-5" }));
@@ -161,6 +164,47 @@ describe("POST /api/wallet/deposit", () => {
 
     expect(res.status).toBe(400);
     expect(body.title).toBe("Bad Request");
+    expect(body.detail).toContain("Invalid deposit amount");
+  });
+
+  it("returns 500 without exposing internals when the service reports a configuration error", async () => {
+    mockGetAuthPayload.mockResolvedValue({ userId: "user-1" });
+    __mocks.selectWhere.mockResolvedValueOnce([
+      { stellarAddress: VALID_STELLAR_ADDRESS },
+    ]);
+    mockCalculateDepositParams.mockRejectedValueOnce(
+      new DefindexServiceError(
+        "DEFINDEX_VAULT_CONTRACT_ID is not configured",
+        "configuration",
+      ),
+    );
+
+    const res = await POST(makeRequest({ amount: "100000000" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(body.title).toBe("Internal Server Error");
+    expect(body.detail).not.toContain("DEFINDEX_VAULT_CONTRACT_ID");
+  });
+
+  it("returns 502 with a generic detail when the service reports an upstream failure", async () => {
+    mockGetAuthPayload.mockResolvedValue({ userId: "user-1" });
+    __mocks.selectWhere.mockResolvedValueOnce([
+      { stellarAddress: VALID_STELLAR_ADDRESS },
+    ]);
+    mockCalculateDepositParams.mockRejectedValueOnce(
+      new DefindexServiceError(
+        "Failed to query total_supply on vault: HostError: contract invocation failed",
+        "upstream",
+      ),
+    );
+
+    const res = await POST(makeRequest({ amount: "100000000" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(502);
+    expect(body.title).toBe("Bad Gateway");
+    expect(body.detail).not.toContain("HostError");
   });
 
   it("returns 500 on unexpected errors", async () => {
