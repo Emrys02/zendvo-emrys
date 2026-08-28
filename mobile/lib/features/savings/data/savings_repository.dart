@@ -117,6 +117,21 @@ class SavingsRepository {
     submissionStatus.value = SavingsSubmissionStatus.idle;
   }
 
+  /// Registers a newly generated Stellar public key with the backend.
+  ///
+  /// Authentication is supplied by [ApiClient.authTokenProvider]. A duplicate
+  /// address is surfaced as [ConflictException] rather than being retried.
+  Future<void> registerStellarAddress(String stellarAddress) async {
+    if (stellarAddress.trim().isEmpty) {
+      throw ArgumentError.value(stellarAddress, 'stellarAddress', 'Cannot be empty.');
+    }
+
+    await _apiClient.postWithRetry(
+      '$_baseUrl/api/wallet/register',
+      {'stellarAddress': stellarAddress},
+    );
+  }
+
   Future<SavingsDataModel> fetchSavingsDashboardData(String accountId) async {
     // TODO: Call backend balance/apy endpoint via _apiClient.postWithRetry.
     return SavingsDataModel(balance: '0.0', apy: '0.0');

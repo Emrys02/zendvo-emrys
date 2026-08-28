@@ -16,6 +16,7 @@ import 'api_exceptions.dart';
 class ApiClient {
   ApiClient({
     HttpClient? httpClient,
+    this.authTokenProvider,
     this.maxRetries = 3,
     this.baseDelay = const Duration(milliseconds: 500),
     this.maxDelay = const Duration(seconds: 4),
@@ -23,6 +24,9 @@ class ApiClient {
   }) : _httpClient = httpClient ?? HttpClient();
 
   final HttpClient _httpClient;
+
+  /// Provides the current access token for authenticated requests.
+  final Future<String?> Function()? authTokenProvider;
 
   /// Number of submission attempts before giving up.
   final int maxRetries;
@@ -103,6 +107,10 @@ class ApiClient {
     final uri = Uri.parse(url);
     final request = await _httpClient.postUrl(uri);
     request.headers.contentType = ContentType.json;
+    final token = await authTokenProvider?.call();
+    if (token != null && token.isNotEmpty) {
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+    }
     headers?.forEach((key, value) {
       request.headers.set(key, value);
     });
@@ -120,6 +128,12 @@ class ApiClient {
 
     if (statusCode == 400) {
       throw TransactionFailedException(
+        message,
+        statusCode: statusCode,
+      );
+    }
+    if (statusCode == 409) {
+      throw ConflictException(
         message,
         statusCode: statusCode,
       );

@@ -33,6 +33,11 @@ class NetworkCongestedException extends ApiException {
   const NetworkCongestedException(super.message, {super.statusCode, super.cause});
 }
 
+/// Thrown when a resource conflicts with an existing registration (HTTP 409).
+class ConflictException extends ApiException {
+  const ConflictException(super.message, {super.statusCode, super.cause});
+}
+
 /// Thrown for any other unexpected API failure (e.g. HTTP 404, 422).
 class ApiRequestException extends ApiException {
   const ApiRequestException(super.message, {super.statusCode, super.cause});
