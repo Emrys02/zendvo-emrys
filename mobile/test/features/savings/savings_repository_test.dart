@@ -4,8 +4,7 @@ import 'package:mobile/core/network/api_client.dart';
 import 'package:mobile/features/savings/data/savings_repository.dart';
 
 class _FakeApiClient extends ApiClient {
-  _FakeApiClient({this.response, this.error})
-      : super(baseUrl: 'https://example.test');
+  _FakeApiClient({this.response, this.error});
 
   final Map<String, dynamic>? response;
   final Object? error;
@@ -18,6 +17,7 @@ class _FakeApiClient extends ApiClient {
     String path,
     Map<String, dynamic> body, {
     int maxAttempts = 3,
+    Map<String, String>? headers,
   }) async {
     capturedPath = path;
     capturedBody = body;
