@@ -660,7 +660,7 @@ describe("DefindexService.getVaultBalance", () => {
     expect(result.rawUserBalance).toBe(BALANCE_OF.toString());
     expect(result.userBalance).toBe("0.0005000"); // 5,000 / 1e7
     expect(result.rawSharePrice).toBe(EXPECTED_SHARE_PRICE.toString());
-    expect(result.sharePrice).toBe("1.0000000"); // 10_000_000_000 / 10_000 = 1,000,000 = 0.1 * 10^7 -> 1.0000000
+    expect(result.sharePrice).toBe("1000000.0000000");
     // user owns 5,000 of 10,000 shares of 10_000_000_000 managed => 5_000_000_000 (500 USDC)
     expect(result.rawUnderlyingUsdc).toBe("5000000000");
     expect(result.underlyingUsdc).toBe("500.0000000");
@@ -773,10 +773,10 @@ describe("DefindexService.getVaultBalance", () => {
   });
 
   it("calculates APY when a valid historical share price snapshot is provided", async () => {
-    // Current share price: 10_000_000 (1.0000000)
-    // Snapshot from 30 days ago (30 * 86400 seconds) with share price 9_500_000
+    // Current share price: EXPECTED_SHARE_PRICE (10_000_000_000_000n)
+    // Snapshot from 30 days ago with share price 5% lower (9_500_000_000_000n)
     const pastTimestamp = Math.floor(Date.now() / 1000) - 30 * 86400;
-    const pastSharePrice = 9_500_000n;
+    const pastSharePrice = (EXPECTED_SHARE_PRICE * 95n) / 100n;
 
     const result = await DefindexService.getVaultBalance(USER_ADDRESS, undefined, {
       historicalSnapshot: {
@@ -793,10 +793,11 @@ describe("DefindexService.getVaultBalance", () => {
 
   it("returns APY rate null when historical snapshot is missing or elapsed time is under 1 hour", async () => {
     const recentTimestamp = Math.floor(Date.now() / 1000) - 60; // 1 min ago
+    const pastSharePrice = (EXPECTED_SHARE_PRICE * 95n) / 100n;
     const result = await DefindexService.getVaultBalance(USER_ADDRESS, undefined, {
       historicalSnapshot: {
         timestamp: recentTimestamp,
-        sharePrice: "9500000",
+        sharePrice: pastSharePrice.toString(),
       },
     });
 

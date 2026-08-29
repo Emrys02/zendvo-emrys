@@ -286,7 +286,10 @@ export class DefindexService {
       );
     }
 
-    const cacheKey = `${contractId}:${userAddress}`;
+    const snapKey = options?.historicalSnapshot
+      ? `:${options.historicalSnapshot.timestamp}:${options.historicalSnapshot.sharePrice}`
+      : "";
+    const cacheKey = `${contractId}:${userAddress}:${rpcUrl}:${networkPassphrase}${snapKey}`;
 
     return defindexCacheSingleton.getOrFetch(
       cacheKey,
