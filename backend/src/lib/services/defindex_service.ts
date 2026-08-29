@@ -34,31 +34,79 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 
-/** Configured DeFindex SDK instance plus the Soroban RPC client it talks to. */
-export interface DefindexClient {
-  sdk: DefindexSDK;
-  server: rpc.Server;
-  rpcUrl: string;
-  networkPassphrase: string;
-  network: SupportedNetworks;
+/** Details about the yield / APY estimate for a vault position. */
+export interface APYInfo {
+  /**
+   * Annualized yield rate as a float (e.g. 0.0825 for 8.25%),
+   * or `null` if insufficient historical data exists to calculate a meaningful APY.
+   */
+  rate: number | null;
+  /** Formatted APY percentage string (e.g. "8.25%" or "N/A"). */
+  formatted: string;
+  /** True if this APY is an estimate calculated from historical share price changes. */
+  isEstimated: boolean;
+  /** Description of the methodology used to derive or evaluate the APY. */
+  methodology: string;
+  /** Optional realized yield in USDC over the elapsed period if calculated against a user deposit. */
+  realizedYieldUsdc?: string | null;
 }
 
-/** Estimated vault yield returned by the DeFindex SDK. */
-export interface VaultApyEstimate {
-  apy: number;
-  contractId: string;
-  networkPassphrase: string;
-  rpcUrl: string;
+/** Historical share price snapshot used to calculate realized yield / APY. */
+export interface HistoricalSharePriceSnapshot {
+  /** Timestamp in seconds (Unix epoch), ISO date string, or Date of historical snapshot. */
+  timestamp: number | string | Date;
+  /** Historical share price (scaled by 10^7, as a string or bigint). */
+  sharePrice: string | bigint;
 }
 
-/** Unsigned vault invocation produced by the DeFindex SDK. */
-export interface VaultInvocation {
-  unsignedXdr: string;
-  functionName: string;
-  contractId: string;
-  networkPassphrase: string;
-  rpcUrl: string;
+/** Options for querying a vault position / balance. */
+export interface GetVaultBalanceOptions {
+  /** Override default vault contract ID. */
+  vaultContractId?: string;
+  /** Override default RPC URL. */
+  rpcUrl?: string;
+  /** Override default network passphrase. */
+  networkPassphrase?: string;
+  /** Bypass in-memory cache and perform a fresh RPC query. */
+  skipCache?: boolean;
+  /** Cache TTL in milliseconds for this request (default: 10,000ms / 10s). */
+  ttlMs?: number;
+  /** Historical share price snapshot for APY calculation. */
+  historicalSnapshot?: HistoricalSharePriceSnapshot;
 }
+
+/** Results of a DeFindex vault balance / position query. */
+export interface VaultBalance {
+  /** Stellar address of the user. */
+  userAddress: string;
+  /** DeFindex vault contract ID. */
+  contractId: string;
+  /** User's raw vault share balance in smallest units (i128, 7 decimals). */
+  rawUserBalance: string;
+  /** User's normalized vault share balance (decimal string, e.g. "5000.0000000"). */
+  userBalance: string;
+  /** Current share price scaled by 10^7 (matches USDC / share precision). */
+  rawSharePrice: string;
+  /** Current share price normalized (decimal string, e.g. "1.0000000"). */
+  sharePrice: string;
+  /** User's underlying USDC-equivalent position in smallest units (i128, 7 decimals). */
+  rawUnderlyingUsdc: string;
+  /** User's underlying USDC-equivalent position normalized (decimal string, e.g. "500.0000000"). */
+  underlyingUsdc: string;
+  /** Total vault share supply in smallest units (i128). */
+  rawTotalSupply: string;
+  /** Total USDC managed by the vault in smallest units (i128). */
+  rawTotalManagedFunds: string;
+  /** Soroban RPC endpoint used. */
+  rpcUrl: string;
+  /** Yield / APY estimation details. */
+  apy: APYInfo;
+  /** ISO timestamp when the position was fetched. */
+  fetchedAt: string;
+}
+
+/** Alias for VaultBalance for callers using position terminology. */
+export type VaultPosition = VaultBalance;
 
 /** Results of a DeFindex deposit parameter calculation. */
 export interface DepositParams {
@@ -131,298 +179,307 @@ export class DefindexServiceError extends Error {
   }
 }
 
+/**
+ * Formats a raw integer bigint into a decimal string without floating point loss.
+ * E.g., formatUnits(12345678n, 7) => "1.2345678"
+ */
+export function formatUnits(value: bigint, decimals: number = 7): string {
+  const isNegative = value < 0n;
+  const abs = isNegative ? -value : value;
+  const str = abs.toString().padStart(decimals + 1, "0");
+  const integerPart = str.slice(0, str.length - decimals);
+  const fractionalPart = str.slice(str.length - decimals);
+  return `${isNegative ? "-" : ""}${integerPart}.${fractionalPart}`;
+}
+
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
+class DefindexCache {
+  private cache = new Map<string, CacheEntry<unknown>>();
+  private pendingPromises = new Map<string, Promise<unknown>>();
+  private defaultTtlMs = 10_000;
+
+  get<T>(key: string): T | undefined {
+    const entry = this.cache.get(key);
+    if (!entry) return undefined;
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(key);
+      return undefined;
+    }
+    return entry.data as T;
+  }
+
+  set<T>(key: string, data: T, ttlMs?: number): void {
+    const ttl = ttlMs ?? this.defaultTtlMs;
+    this.cache.set(key, {
+      data,
+      expiresAt: Date.now() + ttl,
+    });
+  }
+
+  async getOrFetch<T>(
+    key: string,
+    fetcher: () => Promise<T>,
+    skipCache: boolean = false,
+    ttlMs?: number,
+  ): Promise<T> {
+    if (!skipCache) {
+      const cached = this.get<T>(key);
+      if (cached !== undefined) {
+        return cached;
+      }
+      const pending = this.pendingPromises.get(key);
+      if (pending) {
+        return pending as Promise<T>;
+      }
+    }
+
+    const promise = (async () => {
+      try {
+        const data = await fetcher();
+        if (!skipCache) {
+          this.set(key, data, ttlMs);
+        }
+        return data;
+      } finally {
+        this.pendingPromises.delete(key);
+      }
+    })();
+
+    this.pendingPromises.set(key, promise);
+    return promise;
+  }
+
+  clear(): void {
+    this.cache.clear();
+    this.pendingPromises.clear();
+  }
+}
+
+const defindexCacheSingleton = new DefindexCache();
+
 export class DefindexService {
   /**
-   * Resolves RPC URL, network passphrase, and DeFindex network from env.
+   * Queries a user's DeFindex vault position on Soroban, including user share balance,
+   * share price, underlying USDC balance, and APY/yield estimate.
+   *
+   * Utilizes a short-lived in-memory cache to deduplicate repeated RPC calls.
+   *
+   * @param userAddress Stellar G... public key of the user.
+   * @param vaultContractId Optional contract address (defaults to DEFINDEX_VAULT_CONTRACT_ID env var).
+   * @param options Additional query options (caching, RPC URL, historical snapshot for APY).
    */
-  static resolveConfig(): {
-    rpcUrl: string;
-    networkPassphrase: string;
-    network: SupportedNetworks;
-  } {
+  static async getVaultBalance(
+    userAddress: string,
+    vaultContractId?: string,
+    options?: GetVaultBalanceOptions,
+  ): Promise<VaultBalance> {
+    const contractId =
+      vaultContractId || options?.vaultContractId || process.env.DEFINDEX_VAULT_CONTRACT_ID;
     const rpcUrl =
-      process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
+      options?.rpcUrl || process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
     const networkPassphrase =
-      process.env.STELLAR_NETWORK_PASSPHRASE || Networks.TESTNET;
-    const network =
-      networkPassphrase === Networks.PUBLIC
-        ? SupportedNetworks.MAINNET
-        : SupportedNetworks.TESTNET;
-    return { rpcUrl, networkPassphrase, network };
-  }
+      options?.networkPassphrase || process.env.STELLAR_NETWORK_PASSPHRASE || Networks.TESTNET;
 
-  /**
-   * Instantiates the DeFindex server SDK and a Soroban RPC client, configured
-   * with the RPC URL and network passphrase. Constructor failures (invalid
-   * RPC URL, SDK init errors) are wrapped as `DefindexServiceError`.
-   */
-  static createClient(): DefindexClient {
-    const { rpcUrl, networkPassphrase, network } = DefindexService.resolveConfig();
-    try {
-      const server = new rpc.Server(rpcUrl);
-      const sdk = new DefindexSDK({
-        apiKey: process.env.DEFINDEX_API_KEY,
-        baseUrl: process.env.DEFINDEX_API_URL,
-        timeout: 30_000,
-        defaultNetwork: network,
-      });
-      return { sdk, server, rpcUrl, networkPassphrase, network };
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      throw new DefindexServiceError(
-        `Failed to initialize DeFindex SDK for RPC ${rpcUrl}: ${err.message}`,
-        "upstream",
-        err,
-      );
-    }
-  }
-
-  /**
-   * Creates the SDK client and verifies Soroban RPC connectivity. RPC
-   * transport failures are wrapped as `kind: "upstream"` errors.
-   */
-  static async initialize(): Promise<DefindexClient> {
-    const client = DefindexService.createClient();
-    try {
-      await client.server.getHealth();
-    } catch (error) {
-      if (error instanceof DefindexServiceError) {
-        throw error;
-      }
-      const err = error instanceof Error ? error : new Error(String(error));
-      throw new DefindexServiceError(
-        `Failed to connect to Soroban RPC at ${client.rpcUrl}: ${err.message}`,
-        "upstream",
-        err,
-      );
-    }
-    return client;
-  }
-
-  /**
-   * Queries vault metadata, managed funds, fees, and reported APY via the
-   * DeFindex server SDK.
-   */
-  static async queryVaultInfo(
-    vaultAddress?: string,
-  ): Promise<VaultInfoResponse> {
-    const contractId = vaultAddress || DefindexService.requireVaultContractId();
-    const client = await DefindexService.initialize();
-    try {
-      return await client.sdk.getVaultInfo(contractId, client.network);
-    } catch (error) {
-      throw DefindexService.wrapSdkError(
-        `Failed to query vault info for ${contractId}`,
-        error,
-      );
-    }
-  }
-
-  /**
-   * Estimates the vault's current yield rate (APY) via the DeFindex SDK.
-   */
-  static async estimateApy(vaultAddress?: string): Promise<VaultApyEstimate> {
-    const contractId = vaultAddress || DefindexService.requireVaultContractId();
-    const client = await DefindexService.initialize();
-    try {
-      const apy: VaultApyResponse = await client.sdk.getVaultAPY(
-        contractId,
-        client.network,
-      );
-      return {
-        apy: apy.apy,
-        contractId,
-        networkPassphrase: client.networkPassphrase,
-        rpcUrl: client.rpcUrl,
-      };
-    } catch (error) {
-      throw DefindexService.wrapSdkError(
-        `Failed to estimate APY for vault ${contractId}`,
-        error,
-      );
-    }
-  }
-
-  /**
-   * Builds an unsigned deposit invocation through the DeFindex SDK.
-   *
-   * @param userAddress Stellar G... address that signs the deposit.
-   * @param amounts Per-asset deposit amounts in smallest units.
-   */
-  static async buildDepositInvocation(
-    userAddress: string,
-    amounts: string[],
-    options: { invest?: boolean; slippageBps?: number; vaultAddress?: string } = {},
-  ): Promise<VaultInvocation> {
-    DefindexService.requireUserAddress(userAddress);
-    const parsedAmounts = DefindexService.parsePositiveAmounts(
-      amounts,
-      "deposit",
-    );
-    const contractId =
-      options.vaultAddress || DefindexService.requireVaultContractId();
-    const client = await DefindexService.initialize();
-
-    const depositData: DefindexSdkDepositParams = {
-      caller: userAddress,
-      amounts: parsedAmounts,
-      invest: options.invest ?? true,
-      slippageBps: options.slippageBps,
-    };
-
-    try {
-      const response: VaultTransactionResponse = await client.sdk.depositToVault(
-        contractId,
-        depositData,
-        client.network,
-      );
-      return DefindexService.toVaultInvocation(
-        response,
-        "deposit",
-        contractId,
-        client,
-      );
-    } catch (error) {
-      throw DefindexService.wrapSdkError(
-        `Failed to build DeFindex deposit invocation for ${userAddress}`,
-        error,
-      );
-    }
-  }
-
-  /**
-   * Builds an unsigned withdraw invocation through the DeFindex SDK.
-   *
-   * @param userAddress Stellar G... address that owns the vault shares.
-   * @param amounts Per-asset withdrawal amounts in smallest units.
-   */
-  static async buildWithdrawInvocation(
-    userAddress: string,
-    amounts: string[],
-    options: { slippageBps?: number; vaultAddress?: string } = {},
-  ): Promise<VaultInvocation> {
-    DefindexService.requireUserAddress(userAddress);
-    const parsedAmounts = DefindexService.parsePositiveAmounts(
-      amounts,
-      "withdrawal",
-    );
-    const contractId =
-      options.vaultAddress || DefindexService.requireVaultContractId();
-    const client = await DefindexService.initialize();
-
-    const withdrawData: DefindexSdkWithdrawParams = {
-      caller: userAddress,
-      amounts: parsedAmounts,
-      slippageBps: options.slippageBps,
-    };
-
-    try {
-      const response: VaultTransactionResponse =
-        await client.sdk.withdrawFromVault(
-          contractId,
-          withdrawData,
-          client.network,
-        );
-      return DefindexService.toVaultInvocation(
-        response,
-        "withdraw",
-        contractId,
-        client,
-      );
-    } catch (error) {
-      throw DefindexService.wrapSdkError(
-        `Failed to build DeFindex withdraw invocation for ${userAddress}`,
-        error,
-      );
-    }
-  }
-
-  private static requireUserAddress(userAddress: string): void {
     if (!StrKey.isValidEd25519PublicKey(userAddress)) {
       throw new DefindexServiceError(
         `Invalid user address "${userAddress}": expected a valid Stellar G... public key`,
         "validation",
       );
     }
-  }
 
-  private static requireVaultContractId(): string {
-    const contractId = process.env.DEFINDEX_VAULT_CONTRACT_ID;
     if (!contractId || !StrKey.isValidContract(contractId)) {
       throw new DefindexServiceError(
         "DEFINDEX_VAULT_CONTRACT_ID is not configured: expected a valid Stellar C... contract address",
         "configuration",
       );
     }
-    return contractId;
+
+    const snapKey = options?.historicalSnapshot
+      ? `:${options.historicalSnapshot.timestamp}:${options.historicalSnapshot.sharePrice}`
+      : "";
+    const cacheKey = `${contractId}:${userAddress}:${rpcUrl}:${networkPassphrase}${snapKey}`;
+
+    return defindexCacheSingleton.getOrFetch(
+      cacheKey,
+      async () => {
+        const server = new rpc.Server(rpcUrl);
+
+        try {
+          const userAddressScVal = Address.fromString(userAddress).toScVal();
+
+          const userBalanceRaw = BigInt(
+            scValToNative(
+              await DefindexService.queryVault(
+                server,
+                contractId,
+                "balance_of",
+                [userAddressScVal],
+                userAddress,
+                networkPassphrase,
+              ),
+            ) as bigint,
+          );
+
+          const totalSupplyRaw = BigInt(
+            scValToNative(
+              await DefindexService.queryVault(
+                server,
+                contractId,
+                "total_supply",
+                [],
+                userAddress,
+                networkPassphrase,
+              ),
+            ) as bigint,
+          );
+
+          const managedFunds = scValToNative(
+            await DefindexService.queryVault(
+              server,
+              contractId,
+              "fetch_total_managed_funds",
+              [],
+              userAddress,
+              networkPassphrase,
+            ),
+          ) as Array<{
+            asset: string;
+            total_amount: bigint;
+            idle_amount: bigint;
+            invested_amount: bigint;
+            strategy_allocations: unknown[];
+          }>;
+
+          if (managedFunds.length === 0) {
+            throw new DefindexServiceError(
+              `Vault ${contractId} reports no managed assets; cannot calculate vault balance`,
+              "upstream",
+            );
+          }
+
+          const totalManagedFundsRaw = managedFunds.reduce(
+            (sum, asset) => sum + BigInt(asset.total_amount),
+            0n,
+          );
+
+          if (totalSupplyRaw <= 0n && totalManagedFundsRaw > 0n) {
+            throw new DefindexServiceError(
+              `Vault ${contractId} manages ${totalManagedFundsRaw} units but has no shares in circulation; cannot calculate position`,
+              "upstream",
+            );
+          }
+
+          if (totalManagedFundsRaw <= 0n && totalSupplyRaw > 0n) {
+            throw new DefindexServiceError(
+              `Vault ${contractId} has shares in circulation but manages no USDC funds; cannot calculate position`,
+              "upstream",
+            );
+          }
+
+          let sharePriceRaw: bigint;
+          let underlyingUsdcRaw: bigint;
+
+          if (totalSupplyRaw <= 0n) {
+            sharePriceRaw = 10n ** 7n;
+            underlyingUsdcRaw = userBalanceRaw;
+          } else {
+            sharePriceRaw = (totalManagedFundsRaw * 10n ** 7n) / totalSupplyRaw;
+            underlyingUsdcRaw = (userBalanceRaw * totalManagedFundsRaw) / totalSupplyRaw;
+          }
+
+          let apy: APYInfo = {
+            rate: null,
+            formatted: "N/A",
+            isEstimated: false,
+            methodology:
+              "Historical vault performance data is insufficient or unavailable to calculate a meaningful APY.",
+          };
+
+          if (options?.historicalSnapshot) {
+            const snap = options.historicalSnapshot;
+            const pastTime =
+              typeof snap.timestamp === "number"
+                ? snap.timestamp
+                : snap.timestamp instanceof Date
+                ? Math.floor(snap.timestamp.getTime() / 1000)
+                : Math.floor(new Date(snap.timestamp).getTime() / 1000);
+            const currentTime = Math.floor(Date.now() / 1000);
+            const elapsedSeconds = currentTime - pastTime;
+
+            const pastSharePriceRaw = BigInt(snap.sharePrice);
+
+            if (
+              elapsedSeconds >= 3600 &&
+              pastSharePriceRaw > 0n &&
+              sharePriceRaw >= pastSharePriceRaw
+            ) {
+              const ratio = Number(sharePriceRaw) / Number(pastSharePriceRaw);
+              const years = elapsedSeconds / (365.25 * 86400);
+              const annualizedRate = Math.pow(ratio, 1 / years) - 1;
+
+              if (Number.isFinite(annualizedRate) && annualizedRate >= 0) {
+                const percentageStr = (annualizedRate * 100).toFixed(2) + "%";
+                apy = {
+                  rate: annualizedRate,
+                  formatted: percentageStr,
+                  isEstimated: true,
+                  methodology: `Annualized return derived from historical share price increase over ${Math.round(
+                    elapsedSeconds / 3600,
+                  )} hours.`,
+                };
+              }
+            }
+          }
+
+          return {
+            userAddress,
+            contractId,
+            rawUserBalance: userBalanceRaw.toString(),
+            userBalance: formatUnits(userBalanceRaw, 7),
+            rawSharePrice: sharePriceRaw.toString(),
+            sharePrice: formatUnits(sharePriceRaw, 7),
+            rawUnderlyingUsdc: underlyingUsdcRaw.toString(),
+            underlyingUsdc: formatUnits(underlyingUsdcRaw, 7),
+            rawTotalSupply: totalSupplyRaw.toString(),
+            rawTotalManagedFunds: totalManagedFundsRaw.toString(),
+            rpcUrl,
+            apy,
+            fetchedAt: new Date().toISOString(),
+          };
+        } catch (error) {
+          if (error instanceof DefindexServiceError) {
+            throw error;
+          }
+          const err = error instanceof Error ? error : new Error(String(error));
+          throw new DefindexServiceError(
+            `Failed to query DeFindex vault balance for ${userAddress}: ${err.message}`,
+            "upstream",
+            err,
+          );
+        }
+      },
+      options?.skipCache,
+      options?.ttlMs,
+    );
   }
 
-  private static parsePositiveAmounts(
-    amounts: string[],
-    kind: "deposit" | "withdrawal",
-  ): number[] {
-    if (!Array.isArray(amounts) || amounts.length === 0) {
-      throw new DefindexServiceError(
-        `Invalid ${kind} amounts: expected a non-empty array of positive integers in smallest units`,
-        "validation",
-      );
-    }
-    return amounts.map((amount) => {
-      let amountN: bigint;
-      try {
-        amountN = BigInt(amount);
-      } catch {
-        throw new DefindexServiceError(
-          `Invalid ${kind} amount "${amount}": must be a positive integer in smallest units`,
-          "validation",
-        );
-      }
-      if (amountN <= 0n) {
-        throw new DefindexServiceError(
-          `Invalid ${kind} amount "${amount}": must be greater than zero`,
-          "validation",
-        );
-      }
-      const asNumber = Number(amountN);
-      if (!Number.isSafeInteger(asNumber)) {
-        throw new DefindexServiceError(
-          `Invalid ${kind} amount "${amount}": exceeds JavaScript safe integer range required by the DeFindex SDK`,
-          "validation",
-        );
-      }
-      return asNumber;
-    });
+  /** Alias for getVaultBalance for callers using position terminology. */
+  static async getVaultPosition(
+    userAddress: string,
+    vaultContractId?: string,
+    options?: GetVaultBalanceOptions,
+  ): Promise<VaultBalance> {
+    return DefindexService.getVaultBalance(userAddress, vaultContractId, options);
   }
 
-  private static toVaultInvocation(
-    response: VaultTransactionResponse,
-    fallbackFunctionName: string,
-    contractId: string,
-    client: DefindexClient,
-  ): VaultInvocation {
-    if (!response.xdr) {
-      throw new DefindexServiceError(
-        `DeFindex SDK returned no transaction XDR for ${fallbackFunctionName} on vault ${contractId}`,
-        "upstream",
-      );
-    }
-    return {
-      unsignedXdr: response.xdr,
-      functionName: response.functionName || fallbackFunctionName,
-      contractId,
-      networkPassphrase: client.networkPassphrase,
-      rpcUrl: client.rpcUrl,
-    };
+  /** Clears the internal RPC response cache (useful for testing and manual invalidation). */
+  static clearCache(): void {
+    defindexCacheSingleton.clear();
   }
-
-  private static wrapSdkError(prefix: string, error: unknown): DefindexServiceError {
-    if (error instanceof DefindexServiceError) {
-      return error;
-    }
-    const err = error instanceof Error ? error : new Error(String(error));
-    return new DefindexServiceError(`${prefix}: ${err.message}`, "upstream", err);
-  }
-
   /**
    * Calculates the Soroban parameters required to withdraw `amount` of USDC
    * from the DeFindex vault on behalf of `userAddress` and returns an
