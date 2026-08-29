@@ -12,12 +12,36 @@ import {
   DefindexServiceError,
 } from "../../src/lib/services/defindex_service";
 
+jest.mock("@defindex/sdk", () => {
+  const mockGetVaultInfo = jest.fn();
+  const mockGetVaultAPY = jest.fn();
+  const mockDepositToVault = jest.fn();
+  const mockWithdrawFromVault = jest.fn();
+  const MockDefindexSDK = jest.fn().mockImplementation(() => ({
+    getVaultInfo: mockGetVaultInfo,
+    getVaultAPY: mockGetVaultAPY,
+    depositToVault: mockDepositToVault,
+    withdrawFromVault: mockWithdrawFromVault,
+  }));
+  return {
+    DefindexSDK: MockDefindexSDK,
+    SupportedNetworks: { TESTNET: "testnet", MAINNET: "mainnet" },
+    __mockGetVaultInfo: mockGetVaultInfo,
+    __mockGetVaultAPY: mockGetVaultAPY,
+    __mockDepositToVault: mockDepositToVault,
+    __mockWithdrawFromVault: mockWithdrawFromVault,
+    __MockDefindexSDK: MockDefindexSDK,
+  };
+});
+
 jest.mock("@stellar/stellar-sdk", () => {
   const actual = jest.requireActual("@stellar/stellar-sdk");
   const mockSimulateTransaction = jest.fn();
+  const mockGetHealth = jest.fn();
   class MockServer {
     url: string;
     simulateTransaction = mockSimulateTransaction;
+    getHealth = mockGetHealth;
 
     constructor(url: string) {
       this.url = url;
@@ -30,11 +54,24 @@ jest.mock("@stellar/stellar-sdk", () => {
       Server: MockServer,
     },
     __mockSimulateTransaction: mockSimulateTransaction,
+    __mockGetHealth: mockGetHealth,
   };
 });
 
 const mockSimulateTransaction = (require("@stellar/stellar-sdk") as any)
   .__mockSimulateTransaction as jest.Mock;
+const mockGetHealth = (require("@stellar/stellar-sdk") as any)
+  .__mockGetHealth as jest.Mock;
+const mockGetVaultInfo = (require("@defindex/sdk") as any)
+  .__mockGetVaultInfo as jest.Mock;
+const mockGetVaultAPY = (require("@defindex/sdk") as any)
+  .__mockGetVaultAPY as jest.Mock;
+const mockDepositToVault = (require("@defindex/sdk") as any)
+  .__mockDepositToVault as jest.Mock;
+const mockWithdrawFromVault = (require("@defindex/sdk") as any)
+  .__mockWithdrawFromVault as jest.Mock;
+const MockDefindexSDK = (require("@defindex/sdk") as any)
+  .__MockDefindexSDK as jest.Mock;
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 const VAULT_CONTRACT_ID = StrKey.encodeContract(Buffer.alloc(32, 7));
@@ -108,6 +145,7 @@ describe("DefindexService.calculateWithdrawalParams", () => {
     process.env.SOROBAN_RPC_URL = "https://fake-rpc.example.com";
     delete process.env.STELLAR_NETWORK_PASSPHRASE;
 
+    mockGetHealth.mockResolvedValue({ status: "healthy" });
     mockSimulateTransaction.mockImplementation(async (tx: any) => {
       switch (invokedMethod(tx)) {
         case "balance_of":
@@ -356,6 +394,7 @@ describe("DefindexService.calculateDepositParams", () => {
     process.env.SOROBAN_RPC_URL = "https://fake-rpc.example.com";
     delete process.env.STELLAR_NETWORK_PASSPHRASE;
 
+    mockGetHealth.mockResolvedValue({ status: "healthy" });
     mockSimulateTransaction.mockImplementation(async (tx: any) => {
       switch (invokedMethod(tx)) {
         case "total_supply":
