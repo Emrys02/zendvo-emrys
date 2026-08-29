@@ -1,13 +1,25 @@
 // DeFindex Service
-// Interfaces with a DeFindex vault contract on Stellar/Soroban to calculate
-// withdrawal parameters (shares to burn, expected USDC assets, and the
-// necessary Soroban contract footprint) and to build the unsigned
-// withdrawal transaction XDR.
+// Instantiates the official DeFindex server SDK and a Soroban RPC client to
+// query vault parameters, estimate yield rates (APY), and build unsigned
+// smart-contract invocations. Deposit/withdrawal parameter calculation still
+// queries vault state over RPC so the returned XDR carries a simulated
+// contract footprint.
 //
 // Environment variables:
 // - DEFINDEX_VAULT_CONTRACT_ID: address (C...) of the DeFindex vault contract
+// - DEFINDEX_API_KEY: optional API key for the DeFindex server SDK
+// - DEFINDEX_API_URL: optional DeFindex API base URL
 // - SOROBAN_RPC_URL: Soroban RPC endpoint (defaults to Soroban testnet)
 // - STELLAR_NETWORK_PASSPHRASE: network passphrase (defaults to testnet)
+import {
+  DefindexSDK,
+  SupportedNetworks,
+  type DepositParams as DefindexSdkDepositParams,
+  type VaultApyResponse,
+  type VaultInfoResponse,
+  type VaultTransactionResponse,
+  type WithdrawParams as DefindexSdkWithdrawParams,
+} from "@defindex/sdk";
 import {
   Account,
   Address,
@@ -21,6 +33,32 @@ import {
   scValToNative,
   xdr,
 } from "@stellar/stellar-sdk";
+
+/** Configured DeFindex SDK instance plus the Soroban RPC client it talks to. */
+export interface DefindexClient {
+  sdk: DefindexSDK;
+  server: rpc.Server;
+  rpcUrl: string;
+  networkPassphrase: string;
+  network: SupportedNetworks;
+}
+
+/** Estimated vault yield returned by the DeFindex SDK. */
+export interface VaultApyEstimate {
+  apy: number;
+  contractId: string;
+  networkPassphrase: string;
+  rpcUrl: string;
+}
+
+/** Unsigned vault invocation produced by the DeFindex SDK. */
+export interface VaultInvocation {
+  unsignedXdr: string;
+  functionName: string;
+  contractId: string;
+  networkPassphrase: string;
+  rpcUrl: string;
+}
 
 /** Results of a DeFindex deposit parameter calculation. */
 export interface DepositParams {
@@ -95,6 +133,297 @@ export class DefindexServiceError extends Error {
 
 export class DefindexService {
   /**
+   * Resolves RPC URL, network passphrase, and DeFindex network from env.
+   */
+  static resolveConfig(): {
+    rpcUrl: string;
+    networkPassphrase: string;
+    network: SupportedNetworks;
+  } {
+    const rpcUrl =
+      process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
+    const networkPassphrase =
+      process.env.STELLAR_NETWORK_PASSPHRASE || Networks.TESTNET;
+    const network =
+      networkPassphrase === Networks.PUBLIC
+        ? SupportedNetworks.MAINNET
+        : SupportedNetworks.TESTNET;
+    return { rpcUrl, networkPassphrase, network };
+  }
+
+  /**
+   * Instantiates the DeFindex server SDK and a Soroban RPC client, configured
+   * with the RPC URL and network passphrase. Constructor failures (invalid
+   * RPC URL, SDK init errors) are wrapped as `DefindexServiceError`.
+   */
+  static createClient(): DefindexClient {
+    const { rpcUrl, networkPassphrase, network } = DefindexService.resolveConfig();
+    try {
+      const server = new rpc.Server(rpcUrl);
+      const sdk = new DefindexSDK({
+        apiKey: process.env.DEFINDEX_API_KEY,
+        baseUrl: process.env.DEFINDEX_API_URL,
+        timeout: 30_000,
+        defaultNetwork: network,
+      });
+      return { sdk, server, rpcUrl, networkPassphrase, network };
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      throw new DefindexServiceError(
+        `Failed to initialize DeFindex SDK for RPC ${rpcUrl}: ${err.message}`,
+        "upstream",
+        err,
+      );
+    }
+  }
+
+  /**
+   * Creates the SDK client and verifies Soroban RPC connectivity. RPC
+   * transport failures are wrapped as `kind: "upstream"` errors.
+   */
+  static async initialize(): Promise<DefindexClient> {
+    const client = DefindexService.createClient();
+    try {
+      await client.server.getHealth();
+    } catch (error) {
+      if (error instanceof DefindexServiceError) {
+        throw error;
+      }
+      const err = error instanceof Error ? error : new Error(String(error));
+      throw new DefindexServiceError(
+        `Failed to connect to Soroban RPC at ${client.rpcUrl}: ${err.message}`,
+        "upstream",
+        err,
+      );
+    }
+    return client;
+  }
+
+  /**
+   * Queries vault metadata, managed funds, fees, and reported APY via the
+   * DeFindex server SDK.
+   */
+  static async queryVaultInfo(
+    vaultAddress?: string,
+  ): Promise<VaultInfoResponse> {
+    const contractId = vaultAddress || DefindexService.requireVaultContractId();
+    const client = await DefindexService.initialize();
+    try {
+      return await client.sdk.getVaultInfo(contractId, client.network);
+    } catch (error) {
+      throw DefindexService.wrapSdkError(
+        `Failed to query vault info for ${contractId}`,
+        error,
+      );
+    }
+  }
+
+  /**
+   * Estimates the vault's current yield rate (APY) via the DeFindex SDK.
+   */
+  static async estimateApy(vaultAddress?: string): Promise<VaultApyEstimate> {
+    const contractId = vaultAddress || DefindexService.requireVaultContractId();
+    const client = await DefindexService.initialize();
+    try {
+      const apy: VaultApyResponse = await client.sdk.getVaultAPY(
+        contractId,
+        client.network,
+      );
+      return {
+        apy: apy.apy,
+        contractId,
+        networkPassphrase: client.networkPassphrase,
+        rpcUrl: client.rpcUrl,
+      };
+    } catch (error) {
+      throw DefindexService.wrapSdkError(
+        `Failed to estimate APY for vault ${contractId}`,
+        error,
+      );
+    }
+  }
+
+  /**
+   * Builds an unsigned deposit invocation through the DeFindex SDK.
+   *
+   * @param userAddress Stellar G... address that signs the deposit.
+   * @param amounts Per-asset deposit amounts in smallest units.
+   */
+  static async buildDepositInvocation(
+    userAddress: string,
+    amounts: string[],
+    options: { invest?: boolean; slippageBps?: number; vaultAddress?: string } = {},
+  ): Promise<VaultInvocation> {
+    DefindexService.requireUserAddress(userAddress);
+    const parsedAmounts = DefindexService.parsePositiveAmounts(
+      amounts,
+      "deposit",
+    );
+    const contractId =
+      options.vaultAddress || DefindexService.requireVaultContractId();
+    const client = await DefindexService.initialize();
+
+    const depositData: DefindexSdkDepositParams = {
+      caller: userAddress,
+      amounts: parsedAmounts,
+      invest: options.invest ?? true,
+      slippageBps: options.slippageBps,
+    };
+
+    try {
+      const response: VaultTransactionResponse = await client.sdk.depositToVault(
+        contractId,
+        depositData,
+        client.network,
+      );
+      return DefindexService.toVaultInvocation(
+        response,
+        "deposit",
+        contractId,
+        client,
+      );
+    } catch (error) {
+      throw DefindexService.wrapSdkError(
+        `Failed to build DeFindex deposit invocation for ${userAddress}`,
+        error,
+      );
+    }
+  }
+
+  /**
+   * Builds an unsigned withdraw invocation through the DeFindex SDK.
+   *
+   * @param userAddress Stellar G... address that owns the vault shares.
+   * @param amounts Per-asset withdrawal amounts in smallest units.
+   */
+  static async buildWithdrawInvocation(
+    userAddress: string,
+    amounts: string[],
+    options: { slippageBps?: number; vaultAddress?: string } = {},
+  ): Promise<VaultInvocation> {
+    DefindexService.requireUserAddress(userAddress);
+    const parsedAmounts = DefindexService.parsePositiveAmounts(
+      amounts,
+      "withdrawal",
+    );
+    const contractId =
+      options.vaultAddress || DefindexService.requireVaultContractId();
+    const client = await DefindexService.initialize();
+
+    const withdrawData: DefindexSdkWithdrawParams = {
+      caller: userAddress,
+      amounts: parsedAmounts,
+      slippageBps: options.slippageBps,
+    };
+
+    try {
+      const response: VaultTransactionResponse =
+        await client.sdk.withdrawFromVault(
+          contractId,
+          withdrawData,
+          client.network,
+        );
+      return DefindexService.toVaultInvocation(
+        response,
+        "withdraw",
+        contractId,
+        client,
+      );
+    } catch (error) {
+      throw DefindexService.wrapSdkError(
+        `Failed to build DeFindex withdraw invocation for ${userAddress}`,
+        error,
+      );
+    }
+  }
+
+  private static requireUserAddress(userAddress: string): void {
+    if (!StrKey.isValidEd25519PublicKey(userAddress)) {
+      throw new DefindexServiceError(
+        `Invalid user address "${userAddress}": expected a valid Stellar G... public key`,
+        "validation",
+      );
+    }
+  }
+
+  private static requireVaultContractId(): string {
+    const contractId = process.env.DEFINDEX_VAULT_CONTRACT_ID;
+    if (!contractId || !StrKey.isValidContract(contractId)) {
+      throw new DefindexServiceError(
+        "DEFINDEX_VAULT_CONTRACT_ID is not configured: expected a valid Stellar C... contract address",
+        "configuration",
+      );
+    }
+    return contractId;
+  }
+
+  private static parsePositiveAmounts(
+    amounts: string[],
+    kind: "deposit" | "withdrawal",
+  ): number[] {
+    if (!Array.isArray(amounts) || amounts.length === 0) {
+      throw new DefindexServiceError(
+        `Invalid ${kind} amounts: expected a non-empty array of positive integers in smallest units`,
+        "validation",
+      );
+    }
+    return amounts.map((amount) => {
+      let amountN: bigint;
+      try {
+        amountN = BigInt(amount);
+      } catch {
+        throw new DefindexServiceError(
+          `Invalid ${kind} amount "${amount}": must be a positive integer in smallest units`,
+          "validation",
+        );
+      }
+      if (amountN <= 0n) {
+        throw new DefindexServiceError(
+          `Invalid ${kind} amount "${amount}": must be greater than zero`,
+          "validation",
+        );
+      }
+      const asNumber = Number(amountN);
+      if (!Number.isSafeInteger(asNumber)) {
+        throw new DefindexServiceError(
+          `Invalid ${kind} amount "${amount}": exceeds JavaScript safe integer range required by the DeFindex SDK`,
+          "validation",
+        );
+      }
+      return asNumber;
+    });
+  }
+
+  private static toVaultInvocation(
+    response: VaultTransactionResponse,
+    fallbackFunctionName: string,
+    contractId: string,
+    client: DefindexClient,
+  ): VaultInvocation {
+    if (!response.xdr) {
+      throw new DefindexServiceError(
+        `DeFindex SDK returned no transaction XDR for ${fallbackFunctionName} on vault ${contractId}`,
+        "upstream",
+      );
+    }
+    return {
+      unsignedXdr: response.xdr,
+      functionName: response.functionName || fallbackFunctionName,
+      contractId,
+      networkPassphrase: client.networkPassphrase,
+      rpcUrl: client.rpcUrl,
+    };
+  }
+
+  private static wrapSdkError(prefix: string, error: unknown): DefindexServiceError {
+    if (error instanceof DefindexServiceError) {
+      return error;
+    }
+    const err = error instanceof Error ? error : new Error(String(error));
+    return new DefindexServiceError(`${prefix}: ${err.message}`, "upstream", err);
+  }
+
+  /**
    * Calculates the Soroban parameters required to withdraw `amount` of USDC
    * from the DeFindex vault on behalf of `userAddress` and returns an
    * unsigned withdrawal transaction XDR.
@@ -118,19 +447,7 @@ export class DefindexService {
     userAddress: string,
     amount: string,
   ): Promise<WithdrawalParams> {
-    const contractId = process.env.DEFINDEX_VAULT_CONTRACT_ID;
-    const rpcUrl =
-      process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
-    const networkPassphrase =
-      process.env.STELLAR_NETWORK_PASSPHRASE || Networks.TESTNET;
-
-    // ── Input validation ───────────────────────────────────────────────────
-    if (!StrKey.isValidEd25519PublicKey(userAddress)) {
-      throw new DefindexServiceError(
-        `Invalid user address "${userAddress}": expected a valid Stellar G... public key`,
-        "validation",
-      );
-    }
+    DefindexService.requireUserAddress(userAddress);
 
     let amountN: bigint;
     try {
@@ -148,14 +465,8 @@ export class DefindexService {
       );
     }
 
-    if (!contractId || !StrKey.isValidContract(contractId)) {
-      throw new DefindexServiceError(
-        "DEFINDEX_VAULT_CONTRACT_ID is not configured: expected a valid Stellar C... contract address",
-        "configuration",
-      );
-    }
-
-    const server = new rpc.Server(rpcUrl);
+    const contractId = DefindexService.requireVaultContractId();
+    const { server, rpcUrl, networkPassphrase } = DefindexService.createClient();
 
     try {
       // ── Query vault state via Soroban RPC ────────────────────────────────
@@ -386,18 +697,7 @@ export class DefindexService {
     userAddress: string,
     amount: string,
   ): Promise<DepositParams> {
-    const contractId = process.env.DEFINDEX_VAULT_CONTRACT_ID;
-    const rpcUrl =
-      process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
-    const networkPassphrase =
-      process.env.STELLAR_NETWORK_PASSPHRASE || Networks.TESTNET;
-
-    if (!StrKey.isValidEd25519PublicKey(userAddress)) {
-      throw new DefindexServiceError(
-        `Invalid user address "${userAddress}": expected a valid Stellar G... public key`,
-        "validation",
-      );
-    }
+    DefindexService.requireUserAddress(userAddress);
 
     let amountN: bigint;
     try {
@@ -415,14 +715,8 @@ export class DefindexService {
       );
     }
 
-    if (!contractId || !StrKey.isValidContract(contractId)) {
-      throw new DefindexServiceError(
-        "DEFINDEX_VAULT_CONTRACT_ID is not configured: expected a valid Stellar C... contract address",
-        "configuration",
-      );
-    }
-
-    const server = new rpc.Server(rpcUrl);
+    const contractId = DefindexService.requireVaultContractId();
+    const { server, rpcUrl, networkPassphrase } = DefindexService.createClient();
 
     try {
       const totalSupply = BigInt(

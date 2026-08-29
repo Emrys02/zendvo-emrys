@@ -12,12 +12,36 @@ import {
   DefindexServiceError,
 } from "../../src/lib/services/defindex_service";
 
+jest.mock("@defindex/sdk", () => {
+  const mockGetVaultInfo = jest.fn();
+  const mockGetVaultAPY = jest.fn();
+  const mockDepositToVault = jest.fn();
+  const mockWithdrawFromVault = jest.fn();
+  const MockDefindexSDK = jest.fn().mockImplementation(() => ({
+    getVaultInfo: mockGetVaultInfo,
+    getVaultAPY: mockGetVaultAPY,
+    depositToVault: mockDepositToVault,
+    withdrawFromVault: mockWithdrawFromVault,
+  }));
+  return {
+    DefindexSDK: MockDefindexSDK,
+    SupportedNetworks: { TESTNET: "testnet", MAINNET: "mainnet" },
+    __mockGetVaultInfo: mockGetVaultInfo,
+    __mockGetVaultAPY: mockGetVaultAPY,
+    __mockDepositToVault: mockDepositToVault,
+    __mockWithdrawFromVault: mockWithdrawFromVault,
+    __MockDefindexSDK: MockDefindexSDK,
+  };
+});
+
 jest.mock("@stellar/stellar-sdk", () => {
   const actual = jest.requireActual("@stellar/stellar-sdk");
   const mockSimulateTransaction = jest.fn();
+  const mockGetHealth = jest.fn();
   class MockServer {
     url: string;
     simulateTransaction = mockSimulateTransaction;
+    getHealth = mockGetHealth;
 
     constructor(url: string) {
       this.url = url;
@@ -30,11 +54,24 @@ jest.mock("@stellar/stellar-sdk", () => {
       Server: MockServer,
     },
     __mockSimulateTransaction: mockSimulateTransaction,
+    __mockGetHealth: mockGetHealth,
   };
 });
 
 const mockSimulateTransaction = (require("@stellar/stellar-sdk") as any)
   .__mockSimulateTransaction as jest.Mock;
+const mockGetHealth = (require("@stellar/stellar-sdk") as any)
+  .__mockGetHealth as jest.Mock;
+const mockGetVaultInfo = (require("@defindex/sdk") as any)
+  .__mockGetVaultInfo as jest.Mock;
+const mockGetVaultAPY = (require("@defindex/sdk") as any)
+  .__mockGetVaultAPY as jest.Mock;
+const mockDepositToVault = (require("@defindex/sdk") as any)
+  .__mockDepositToVault as jest.Mock;
+const mockWithdrawFromVault = (require("@defindex/sdk") as any)
+  .__mockWithdrawFromVault as jest.Mock;
+const MockDefindexSDK = (require("@defindex/sdk") as any)
+  .__MockDefindexSDK as jest.Mock;
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 const VAULT_CONTRACT_ID = StrKey.encodeContract(Buffer.alloc(32, 7));
@@ -108,6 +145,7 @@ describe("DefindexService.calculateWithdrawalParams", () => {
     process.env.SOROBAN_RPC_URL = "https://fake-rpc.example.com";
     delete process.env.STELLAR_NETWORK_PASSPHRASE;
 
+    mockGetHealth.mockResolvedValue({ status: "healthy" });
     mockSimulateTransaction.mockImplementation(async (tx: any) => {
       switch (invokedMethod(tx)) {
         case "balance_of":
@@ -356,6 +394,7 @@ describe("DefindexService.calculateDepositParams", () => {
     process.env.SOROBAN_RPC_URL = "https://fake-rpc.example.com";
     delete process.env.STELLAR_NETWORK_PASSPHRASE;
 
+    mockGetHealth.mockResolvedValue({ status: "healthy" });
     mockSimulateTransaction.mockImplementation(async (tx: any) => {
       switch (invokedMethod(tx)) {
         case "total_supply":
@@ -623,3 +662,298 @@ describe("DefindexService.calculateDepositParams", () => {
     ).rejects.toMatchObject({ kind: "upstream" });
   });
 });
+
+describe("DefindexService SDK initialization", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.DEFINDEX_VAULT_CONTRACT_ID = VAULT_CONTRACT_ID;
+    process.env.SOROBAN_RPC_URL = "https://fake-rpc.example.com";
+    process.env.DEFINDEX_API_KEY = "sk_test_key";
+    delete process.env.STELLAR_NETWORK_PASSPHRASE;
+    mockGetHealth.mockResolvedValue({ status: "healthy" });
+  });
+
+  afterEach(() => {
+    delete process.env.DEFINDEX_VAULT_CONTRACT_ID;
+    delete process.env.SOROBAN_RPC_URL;
+    delete process.env.DEFINDEX_API_KEY;
+  });
+
+  it("creates an SDK client configured with the RPC URL and network passphrase", () => {
+    const client = DefindexService.createClient();
+
+    expect(client.rpcUrl).toBe("https://fake-rpc.example.com");
+    expect(client.networkPassphrase).toBe(
+      "Test SDF Network ; September 2015",
+    );
+    expect(client.network).toBe("testnet");
+    expect(client.sdk).toBeDefined();
+    expect(client.server).toBeDefined();
+    expect(MockDefindexSDK).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: "sk_test_key",
+        defaultNetwork: "testnet",
+        timeout: 30_000,
+      }),
+    );
+  });
+
+  it("maps the public network passphrase to mainnet", () => {
+    process.env.STELLAR_NETWORK_PASSPHRASE =
+      "Public Global Stellar Network ; September 2015";
+
+    const client = DefindexService.createClient();
+
+    expect(client.network).toBe("mainnet");
+    expect(client.networkPassphrase).toBe(
+      "Public Global Stellar Network ; September 2015",
+    );
+  });
+
+  it("verifies RPC connectivity on initialize", async () => {
+    const client = await DefindexService.initialize();
+
+    expect(mockGetHealth).toHaveBeenCalledTimes(1);
+    expect(client.rpcUrl).toBe("https://fake-rpc.example.com");
+  });
+
+  it("wraps RPC connectivity failures as upstream errors", async () => {
+    mockGetHealth.mockRejectedValue(new Error("ECONNREFUSED"));
+
+    await expect(DefindexService.initialize()).rejects.toThrow(
+      DefindexServiceError,
+    );
+    await expect(DefindexService.initialize()).rejects.toThrow(
+      /Failed to connect to Soroban RPC at https:\/\/fake-rpc.example.com/,
+    );
+    await expect(DefindexService.initialize()).rejects.toMatchObject({
+      kind: "upstream",
+    });
+  });
+
+  it("wraps SDK constructor failures as upstream errors", () => {
+    MockDefindexSDK.mockImplementationOnce(() => {
+      throw new Error("invalid config");
+    });
+
+    expect(() => DefindexService.createClient()).toThrow(DefindexServiceError);
+    expect(() => {
+      MockDefindexSDK.mockImplementationOnce(() => {
+        throw new Error("invalid config");
+      });
+      DefindexService.createClient();
+    }).toThrow(/Failed to initialize DeFindex SDK/);
+  });
+});
+
+describe("DefindexService.queryVaultInfo", () => {
+  const vaultInfo = {
+    name: "Zendvo USDC Vault",
+    symbol: "zUSDC",
+    roles: {
+      emergencyManager: USER_ADDRESS,
+      rebalanceManager: USER_ADDRESS,
+      feeReceiver: USER_ADDRESS,
+      manager: USER_ADDRESS,
+    },
+    assets: [],
+    totalManagedFunds: [],
+    feesBps: { vaultFee: 100, defindexFee: 50 },
+    apy: 4.2,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.DEFINDEX_VAULT_CONTRACT_ID = VAULT_CONTRACT_ID;
+    process.env.SOROBAN_RPC_URL = "https://fake-rpc.example.com";
+    delete process.env.STELLAR_NETWORK_PASSPHRASE;
+    mockGetHealth.mockResolvedValue({ status: "healthy" });
+    mockGetVaultInfo.mockResolvedValue(vaultInfo);
+  });
+
+  afterEach(() => {
+    delete process.env.DEFINDEX_VAULT_CONTRACT_ID;
+    delete process.env.SOROBAN_RPC_URL;
+  });
+
+  it("returns vault parameters from the DeFindex SDK", async () => {
+    const result = await DefindexService.queryVaultInfo();
+
+    expect(result).toEqual(vaultInfo);
+    expect(mockGetVaultInfo).toHaveBeenCalledWith(VAULT_CONTRACT_ID, "testnet");
+  });
+
+  it("queries a caller-supplied vault address", async () => {
+    const otherVault = StrKey.encodeContract(Buffer.alloc(32, 9));
+    await DefindexService.queryVaultInfo(otherVault);
+
+    expect(mockGetVaultInfo).toHaveBeenCalledWith(otherVault, "testnet");
+  });
+
+  it("throws when the vault contract id is not configured", async () => {
+    delete process.env.DEFINDEX_VAULT_CONTRACT_ID;
+    await expect(DefindexService.queryVaultInfo()).rejects.toThrow(
+      /DEFINDEX_VAULT_CONTRACT_ID/,
+    );
+  });
+
+  it("wraps SDK failures as upstream errors", async () => {
+    mockGetVaultInfo.mockRejectedValue(new Error("api down"));
+
+    await expect(DefindexService.queryVaultInfo()).rejects.toThrow(
+      DefindexServiceError,
+    );
+    await expect(DefindexService.queryVaultInfo()).rejects.toMatchObject({
+      kind: "upstream",
+    });
+  });
+});
+
+describe("DefindexService.estimateApy", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.DEFINDEX_VAULT_CONTRACT_ID = VAULT_CONTRACT_ID;
+    process.env.SOROBAN_RPC_URL = "https://fake-rpc.example.com";
+    delete process.env.STELLAR_NETWORK_PASSPHRASE;
+    mockGetHealth.mockResolvedValue({ status: "healthy" });
+    mockGetVaultAPY.mockResolvedValue({ apy: 5.5 });
+  });
+
+  afterEach(() => {
+    delete process.env.DEFINDEX_VAULT_CONTRACT_ID;
+    delete process.env.SOROBAN_RPC_URL;
+  });
+
+  it("returns the estimated APY from the DeFindex SDK", async () => {
+    const result = await DefindexService.estimateApy();
+
+    expect(result.apy).toBe(5.5);
+    expect(result.contractId).toBe(VAULT_CONTRACT_ID);
+    expect(result.rpcUrl).toBe("https://fake-rpc.example.com");
+    expect(mockGetVaultAPY).toHaveBeenCalledWith(VAULT_CONTRACT_ID, "testnet");
+  });
+
+  it("wraps SDK failures as upstream errors", async () => {
+    mockGetVaultAPY.mockRejectedValue(new Error("apy unavailable"));
+
+    await expect(DefindexService.estimateApy()).rejects.toThrow(
+      /Failed to estimate APY/,
+    );
+  });
+});
+
+describe("DefindexService.buildDepositInvocation", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.DEFINDEX_VAULT_CONTRACT_ID = VAULT_CONTRACT_ID;
+    process.env.SOROBAN_RPC_URL = "https://fake-rpc.example.com";
+    delete process.env.STELLAR_NETWORK_PASSPHRASE;
+    mockGetHealth.mockResolvedValue({ status: "healthy" });
+    mockDepositToVault.mockResolvedValue({
+      xdr: "AAAA...deposit",
+      functionName: "deposit",
+      params: [],
+      simulationResponse: {},
+    });
+  });
+
+  afterEach(() => {
+    delete process.env.DEFINDEX_VAULT_CONTRACT_ID;
+    delete process.env.SOROBAN_RPC_URL;
+  });
+
+  it("builds a deposit invocation via the DeFindex SDK", async () => {
+    const result = await DefindexService.buildDepositInvocation(USER_ADDRESS, [
+      "100000000",
+    ]);
+
+    expect(result.unsignedXdr).toBe("AAAA...deposit");
+    expect(result.functionName).toBe("deposit");
+    expect(result.contractId).toBe(VAULT_CONTRACT_ID);
+    expect(mockDepositToVault).toHaveBeenCalledWith(
+      VAULT_CONTRACT_ID,
+      {
+        caller: USER_ADDRESS,
+        amounts: [100000000],
+        invest: true,
+        slippageBps: undefined,
+      },
+      "testnet",
+    );
+  });
+
+  it("throws when the SDK returns no XDR", async () => {
+    mockDepositToVault.mockResolvedValue({
+      xdr: null,
+      functionName: "deposit",
+      params: [],
+      simulationResponse: {},
+    });
+
+    await expect(
+      DefindexService.buildDepositInvocation(USER_ADDRESS, ["100"]),
+    ).rejects.toThrow(/no transaction XDR/);
+  });
+
+  it("throws for invalid user addresses", async () => {
+    await expect(
+      DefindexService.buildDepositInvocation("not-a-stellar-address", ["100"]),
+    ).rejects.toThrow(/Invalid user address/);
+  });
+
+  it("throws for invalid amounts", async () => {
+    await expect(
+      DefindexService.buildDepositInvocation(USER_ADDRESS, ["0"]),
+    ).rejects.toThrow(/Invalid deposit amount/);
+  });
+});
+
+describe("DefindexService.buildWithdrawInvocation", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.DEFINDEX_VAULT_CONTRACT_ID = VAULT_CONTRACT_ID;
+    process.env.SOROBAN_RPC_URL = "https://fake-rpc.example.com";
+    delete process.env.STELLAR_NETWORK_PASSPHRASE;
+    mockGetHealth.mockResolvedValue({ status: "healthy" });
+    mockWithdrawFromVault.mockResolvedValue({
+      xdr: "AAAA...withdraw",
+      functionName: "withdraw",
+      params: [],
+      simulationResponse: {},
+    });
+  });
+
+  afterEach(() => {
+    delete process.env.DEFINDEX_VAULT_CONTRACT_ID;
+    delete process.env.SOROBAN_RPC_URL;
+  });
+
+  it("builds a withdraw invocation via the DeFindex SDK", async () => {
+    const result = await DefindexService.buildWithdrawInvocation(
+      USER_ADDRESS,
+      ["50000000"],
+      { slippageBps: 100 },
+    );
+
+    expect(result.unsignedXdr).toBe("AAAA...withdraw");
+    expect(result.functionName).toBe("withdraw");
+    expect(mockWithdrawFromVault).toHaveBeenCalledWith(
+      VAULT_CONTRACT_ID,
+      {
+        caller: USER_ADDRESS,
+        amounts: [50000000],
+        slippageBps: 100,
+      },
+      "testnet",
+    );
+  });
+
+  it("wraps SDK failures as upstream errors", async () => {
+    mockWithdrawFromVault.mockRejectedValue(new Error("vault paused"));
+
+    await expect(
+      DefindexService.buildWithdrawInvocation(USER_ADDRESS, ["100"]),
+    ).rejects.toThrow(/Failed to build DeFindex withdraw invocation/);
+  });
+});
+

@@ -5,6 +5,16 @@ import { DefindexService, DefindexServiceError } from "@/lib/services/defindex_s
 
 const VALID_STELLAR_ADDRESS = "GDWF77422SKLZTBQT77BQEQLCIQY6PFTFZX5OFJTLAFFWJ2PK5WBOZAN";
 
+jest.mock("@defindex/sdk", () => ({
+  DefindexSDK: jest.fn().mockImplementation(() => ({
+    getVaultInfo: jest.fn(),
+    getVaultAPY: jest.fn(),
+    depositToVault: jest.fn(),
+    withdrawFromVault: jest.fn(),
+  })),
+  SupportedNetworks: { TESTNET: "testnet", MAINNET: "mainnet" },
+}));
+
 jest.mock("@/lib/auth-session", () => ({
   getAuthPayload: jest.fn(),
 }));
